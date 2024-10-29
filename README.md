@@ -319,7 +319,7 @@ Used in IPC endpoint FileDownloadCreate.
   ```sh
   akavecli ipc bucket create <bucket-name> --node-address=localhost:5000 --private-key="some-private-key"
   ```
-- **Delete Bucket**: Soft deletess a specific bucket.
+- **Delete Bucket**: Soft deletes a specific bucket.
   ```sh
   akavecli ipc bucket delete <bucket-name> --node-address=localhost:5000 --private-key="some-private-key"
   ```
