@@ -138,7 +138,7 @@ func cmdStreamingListFiles(cmd *cobra.Command, args []string) (err error) {
 	defer mon.Task()(&ctx, args)(&err)
 	bucketName := args[0]
 
-	sdk, err := sdk.New(nodeRPCAddress, maxConcurrency, blockSegmentSize, useConnectionPool)
+	sdk, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool)
 	if err != nil {
 		return err
 	}
@@ -170,7 +170,7 @@ func cmdStreamingFileInfo(cmd *cobra.Command, args []string) (err error) {
 	bucketName := args[0]
 	fileName := args[1]
 
-	sdk, err := sdk.New(nodeRPCAddress, maxConcurrency, blockSegmentSize, useConnectionPool)
+	sdk, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool)
 	if err != nil {
 		return err
 	}
@@ -206,7 +206,7 @@ func cmdStreamingFileUpload(cmd *cobra.Command, args []string) (err error) {
 		}
 	}()
 
-	sdk, err := sdk.New(nodeRPCAddress, maxConcurrency, blockSegmentSize, useConnectionPool)
+	sdk, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool)
 	if err != nil {
 		return err
 	}
@@ -227,6 +227,7 @@ func cmdStreamingFileUpload(cmd *cobra.Command, args []string) (err error) {
 	if err != nil {
 		return fmt.Errorf("failed to get file info: %w", err)
 	}
+
 	bar := progressbar.DefaultBytes(
 		fi.Size(),
 		"uploading",
@@ -238,7 +239,16 @@ func cmdStreamingFileUpload(cmd *cobra.Command, args []string) (err error) {
 		return fmt.Errorf("failed to upload file: %w", err)
 	}
 
-	cmd.PrintErrf("File uploaded successfully: Name=%s, RootCID=%s\n", fileName, info.RootCID)
+	// Finish progress bar: fill the bar as in this point it's guaranteed that the file has been uploaded
+	if err := bar.Finish(); err != nil {
+		return fmt.Errorf("failed to finish progress bar: %w", err)
+	}
+
+	cmd.PrintErrf("File uploaded successfully: Name=%s, RootCID=%s, Size=%d, TransferedSize=%d\n", fileName, info.RootCID, fi.Size(), info.Size)
+	if err != nil {
+		return fmt.Errorf("failed to upload file: %w", err)
+	}
+
 	return nil
 }
 
@@ -249,7 +259,7 @@ func cmdStreamingFileDownload(cmd *cobra.Command, args []string) (err error) {
 	fileName := args[1]
 	destPath := args[2]
 
-	sdk, err := sdk.New(nodeRPCAddress, maxConcurrency, blockSegmentSize, useConnectionPool)
+	sdk, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool)
 	if err != nil {
 		return err
 	}
@@ -291,7 +301,13 @@ func cmdStreamingFileDownload(cmd *cobra.Command, args []string) (err error) {
 		return fmt.Errorf("failed to download file: %w", err)
 	}
 
-	cmd.PrintErrf("File downloaded successfully: Name=%s, Path=%s\n", fileName, filepath.Join(destPath, fileName))
+	writtenBytes := bar.State().CurrentNum
+	// Finish progress bar: fill the bar as in this point it's guaranteed that the file has been downloaded
+	if err := bar.Finish(); err != nil {
+		return fmt.Errorf("failed to finish progress bar: %w", err)
+	}
+
+	cmd.PrintErrf("File downloaded successfully: Name=%s, Path=%s, Size=%d, TransferedSize=%d\n", fileName, filepath.Join(destPath, fileName), writtenBytes, info.Size)
 	return nil
 }
 
@@ -301,7 +317,7 @@ func cmdStreamingFileDelete(cmd *cobra.Command, args []string) (err error) {
 	bucketName := args[0]
 	fileName := args[1]
 
-	sdk, err := sdk.New(nodeRPCAddress, maxConcurrency, blockSegmentSize, useConnectionPool)
+	sdk, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool)
 	if err != nil {
 		return err
 	}

@@ -21,9 +21,9 @@ import (
 
 // Config represents configuration for the storage contract client.
 type Config struct {
-	DialURI         string `mapstructure:"dial_uri"`
-	PrivateKey      string `mapstructure:"private_key"`
-	ContractAddress string `mapstructure:"contract_address"`
+	DialURI         string `usage:"addr of ipc endpoint"`
+	PrivateKey      string `usage:"hex private key used to sign transactions"`
+	ContractAddress string `usage:"hex storage contract address"`
 }
 
 // DefaultConfig returns default configuration for the ipc.

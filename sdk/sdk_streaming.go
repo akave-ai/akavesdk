@@ -24,9 +24,10 @@ type StreamingAPI struct {
 	client            pb.StreamAPIClient
 	conn              *grpc.ClientConn
 	maxConcurrency    int
-	blockSegmentSize  int64
+	blockPartSize     int64
 	useConnectionPool bool
 	encryptionKey     []byte // empty means no encryption
+	maxBlocksInChunk  int
 }
 
 // FileInfo returns meta information for single file by bucket and file name.
@@ -78,7 +79,7 @@ func (sdk *StreamingAPI) ListFiles(ctx context.Context, bucketName string) (_ []
 		files = append(files, FileMetaV2{
 			StreamID:   fileMeta.GetStreamId(),
 			RootCID:    fileMeta.GetRootCid(),
-			BucketID:   BucketIDForName(bucketName),
+			BucketID:   BucketIDFromName(bucketName),
 			Name:       fileMeta.GetName(),
 			Size:       fileMeta.GetSize(),
 			CreatedAt:  fileMeta.GetCreatedAt().AsTime(),
@@ -120,7 +121,7 @@ func (sdk *StreamingAPI) Upload(ctx context.Context, upload FileUploadV2, reader
 	defer mon.Task()(&ctx, upload)(&err)
 
 	isEmptyFile := true
-	buf := make([]byte, MaxChunkSize.ToInt64())
+	buf := make([]byte, sdk.maxBlocksInChunk*int(BlockSize.ToInt64()))
 
 	dagRoot, err := NewDAGRoot()
 	if err != nil {
@@ -285,28 +286,21 @@ func (sdk *StreamingAPI) createChunkUpload(ctx context.Context, fileUpload FileU
 	protoChunk := toProtoChunk(fileUpload.StreamID, chunkDAG.CID.String(), index, chunkDAG.Blocks)
 	req := &pb.StreamFileUploadChunkCreateRequest{Chunk: protoChunk}
 
-	blocksMap := make(map[string]*FileBlock, len(chunkDAG.Blocks))
-	for i, block := range chunkDAG.Blocks {
-		blocksMap[block.CID] = &chunkDAG.Blocks[i]
-	}
-
 	res, err := sdk.client.FileUploadChunkCreate(ctx, req)
 	if err != nil {
 		return FileChunkUploadV2{}, errSDK.Wrap(err)
 	}
+
 	if len(res.Blocks) != len(chunkDAG.Blocks) {
-		return FileChunkUploadV2{}, errSDK.Errorf("unexpected number of blocks from node")
+		return FileChunkUploadV2{}, errSDK.Errorf("received unexpected amount of blocks %d, expected %d", len(res.Blocks), len(chunkDAG.Blocks))
 	}
-
-	for _, upload := range res.Blocks {
-		b, found := blocksMap[upload.Cid]
-		if !found {
-			return FileChunkUploadV2{}, errSDK.Errorf("unexpected block cid %s from node", upload.Cid)
+	for i, upload := range res.Blocks {
+		if chunkDAG.Blocks[i].CID != upload.Cid {
+			return FileChunkUploadV2{}, errSDK.Errorf("block CID mismatch at position %d", i)
 		}
-
-		b.NodeAddress = upload.NodeAddress
-		b.NodeID = upload.NodeId
-		b.Permit = upload.Permit
+		chunkDAG.Blocks[i].NodeAddress = upload.NodeAddress
+		chunkDAG.Blocks[i].NodeID = upload.NodeId
+		chunkDAG.Blocks[i].Permit = upload.Permit
 	}
 
 	return FileChunkUploadV2{
@@ -362,28 +356,18 @@ func (sdk *StreamingAPI) uploadChunkV2(ctx context.Context, fileChunkUpload File
 				return err
 			}
 
-			defer func() {
-				if _, closeErr := sender.CloseAndRecv(); closeErr != nil {
-					slog.Warn("failed to close and recv",
-						slog.Int("block_index", i),
-						slog.String("block_cid", block.CID),
-						slog.String("node_address", block.NodeAddress),
-						slog.String("error", closeErr.Error()),
-					)
-				}
-			}()
-
-			err = uploadBlockV2(ctx, &pb.StreamFileBlockData{
+			err = sdk.uploadBlockV2(ctx, &pb.StreamFileBlockData{
 				Data:  block.Data,
 				Cid:   block.CID,
 				Index: int64(i),
 				Chunk: protoChunk,
-			}, sdk.blockSegmentSize, sender.Send)
+			}, sender.Send)
 			if err != nil {
 				return err
 			}
 
-			return nil
+			_, closeErr := sender.CloseAndRecv()
+			return closeErr
 		})
 	}
 
@@ -487,16 +471,6 @@ func (sdk *StreamingAPI) downloadChunkBlocksV2(
 				return err
 			}
 
-			defer func() {
-				if closeErr := downloadClient.CloseSend(); closeErr != nil {
-					slog.Warn("failed to close and send",
-						slog.Int("block_index", i),
-						slog.String("block_cid", block.CID),
-						slog.String("error", closeErr.Error()),
-					)
-				}
-			}()
-
 			var buf bytes.Buffer
 			for {
 				blockData, err := downloadClient.Recv()
@@ -576,27 +550,22 @@ func (sdk *StreamingAPI) commitStream(ctx context.Context, upload FileUploadV2, 
 	}, nil
 }
 
-func uploadBlockV2(ctx context.Context, block *pb.StreamFileBlockData, blockSegmentSize int64, sender func(*pb.StreamFileBlockData) error) (err error) {
-	defer mon.Task()(&ctx, blockSegmentSize, block.Cid, block.Index, block.Chunk.Cid, block.Chunk.Index, block.Chunk.StreamId)(&err)
-
-	if blockSegmentSize <= 0 {
-		return fmt.Errorf("invalid blockSegmentSize: %d", blockSegmentSize)
-	}
+func (sdk *StreamingAPI) uploadBlockV2(ctx context.Context, block *pb.StreamFileBlockData, sender func(*pb.StreamFileBlockData) error) (err error) {
+	defer mon.Task()(&ctx, block.Cid, block.Index, block.Chunk.Cid, block.Chunk.Index, block.Chunk.StreamId)(&err)
 
 	data := block.Data
-	dataLen := len(data)
+	dataLen := int64(len(data))
 	if dataLen == 0 {
 		return nil
 	}
 
-	blockSegmentSizeInt := int(blockSegmentSize)
-
-	for i := 0; i < dataLen; i += blockSegmentSizeInt {
+	i := int64(0)
+	for ; i < dataLen; i += sdk.blockPartSize {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			end := i + blockSegmentSizeInt
+			end := i + sdk.blockPartSize
 			if end > dataLen {
 				end = dataLen
 			}
@@ -607,7 +576,7 @@ func uploadBlockV2(ctx context.Context, block *pb.StreamFileBlockData, blockSegm
 				return err
 			}
 
-			// these fields are only required for the first segment, skip them for the rest.
+			// these fields are only required for the first part, skip them for the rest.
 			block.Chunk = nil
 			block.Cid = ""
 		}

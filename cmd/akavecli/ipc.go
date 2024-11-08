@@ -198,7 +198,7 @@ func cmdCreateBucketIPC(cmd *cobra.Command, args []string) (err error) {
 	defer mon.Task()(&ctx, args)(&err)
 	bucketName := args[0]
 
-	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockSegmentSize, useConnectionPool, sdk.WithPrivateKey(privateKey))
+	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool, sdk.WithPrivateKey(privateKey))
 	if err != nil {
 		return err
 	}
@@ -228,7 +228,7 @@ func cmdDeleteBucketIPC(cmd *cobra.Command, args []string) (err error) {
 	defer mon.Task()(&ctx, args)(&err)
 	bucketName := args[0]
 
-	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockSegmentSize, useConnectionPool, sdk.WithPrivateKey(privateKey))
+	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool, sdk.WithPrivateKey(privateKey))
 	if err != nil {
 		return err
 	}
@@ -257,7 +257,7 @@ func cmdViewBucketIPC(cmd *cobra.Command, args []string) (err error) {
 	defer mon.Task()(&ctx, args)(&err)
 	bucketName := args[0]
 
-	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockSegmentSize, useConnectionPool, sdk.WithPrivateKey(privateKey))
+	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool, sdk.WithPrivateKey(privateKey))
 	if err != nil {
 		return err
 	}
@@ -286,7 +286,7 @@ func cmdListBucketsIPC(cmd *cobra.Command, args []string) (err error) {
 	ctx := cmd.Context()
 	defer mon.Task()(&ctx, args)(&err)
 
-	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockSegmentSize, useConnectionPool, sdk.WithPrivateKey(privateKey))
+	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool, sdk.WithPrivateKey(privateKey))
 	if err != nil {
 		return err
 	}
@@ -322,7 +322,7 @@ func cmdListFilesIPC(cmd *cobra.Command, args []string) (err error) {
 	defer mon.Task()(&ctx, args)(&err)
 	bucketName := args[0]
 
-	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockSegmentSize, useConnectionPool, sdk.WithPrivateKey(privateKey))
+	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool, sdk.WithPrivateKey(privateKey))
 	if err != nil {
 		return err
 	}
@@ -359,7 +359,7 @@ func cmdFileInfoIPC(cmd *cobra.Command, args []string) (err error) {
 	bucketName := args[0]
 	fileName := args[1]
 
-	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockSegmentSize, useConnectionPool, sdk.WithPrivateKey(privateKey))
+	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool, sdk.WithPrivateKey(privateKey))
 	if err != nil {
 		return err
 	}
@@ -406,7 +406,7 @@ func cmdFileUploadIPC(cmd *cobra.Command, args []string) (err error) {
 		return fmt.Errorf("failed to get file info: %w", err)
 	}
 
-	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockSegmentSize, useConnectionPool, sdk.WithPrivateKey(privateKey))
+	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool, sdk.WithPrivateKey(privateKey))
 	if err != nil {
 		return err
 	}
@@ -442,7 +442,7 @@ func cmdFileDownloadIPC(cmd *cobra.Command, args []string) (err error) {
 	fileName := args[1]
 	destPath := args[2]
 
-	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockSegmentSize, useConnectionPool, sdk.WithPrivateKey(privateKey))
+	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool, sdk.WithPrivateKey(privateKey))
 	if err != nil {
 		return err
 	}

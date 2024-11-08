@@ -43,23 +43,18 @@ func (s Size) String() string {
 	return FormatSize(s)
 }
 
-// ToInt is for convert Size to int.
-func (s Size) ToInt() int {
-	return int(s)
-}
-
 // ToInt64 is for convert Size to int64.
 func (s Size) ToInt64() int64 {
 	return int64(s)
 }
 
-// MulInt is for multiply Size by an integer.
-func (s Size) MulInt(n int) Size {
+// MulInt64 is for multiply Size by an integer.
+func (s Size) MulInt64(n int64) Size {
 	return s * Size(n)
 }
 
-// DivInt is for divide Size by an integer.
-func (s Size) DivInt(n int) Size {
+// DivInt64 is for divide Size by an integer.
+func (s Size) DivInt64(n int64) Size {
 	return s / Size(n)
 }
 
@@ -84,14 +79,14 @@ func FormatSize(size Size) string {
 }
 
 // FormatBytes is for format bytes to string.
-func FormatBytes(bytes int) string {
+func FormatBytes(bytes int64) string {
 	switch {
-	case bytes >= GB.ToInt():
-		return fmt.Sprintf("%d GB", bytes/GB.ToInt())
-	case bytes >= MB.ToInt():
-		return fmt.Sprintf("%d MB", bytes/MB.ToInt())
-	case bytes >= KB.ToInt():
-		return fmt.Sprintf("%d KB", bytes/KB.ToInt())
+	case bytes >= GB.ToInt64():
+		return fmt.Sprintf("%d GB", bytes/GB.ToInt64())
+	case bytes >= MB.ToInt64():
+		return fmt.Sprintf("%d MB", bytes/MB.ToInt64())
+	case bytes >= KB.ToInt64():
+		return fmt.Sprintf("%d KB", bytes/KB.ToInt64())
 	default:
 		return fmt.Sprintf("%d Bytes", bytes)
 	}

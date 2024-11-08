@@ -890,10 +890,15 @@ func TestStreamingFileUploadCommand(t *testing.T) {
 
 	testCases := []testCase{
 		{
-			name:           "File upload successfully",
-			args:           []string{"files-streaming", "upload", bucketName, file, "--node-address", nodeAddress},
-			expectedOutput: []string{fmt.Sprintf("File uploaded successfully: Name=%s", filepath.Base(file))},
-			expectError:    false,
+			name: "File upload successfully",
+			args: []string{"files-streaming", "upload", bucketName, file, "--node-address", nodeAddress},
+			expectedOutput: []string{
+				fmt.Sprintf("File uploaded successfully: Name=%s", filepath.Base(file)),
+				"RootCID=",
+				fmt.Sprintf("Size=%d", 2*memory.MB.ToInt64()),
+				"TransferedSize=",
+			},
+			expectError: false,
 		},
 		{
 			name:           "Bucket name not provided",
@@ -1232,10 +1237,14 @@ func TestStreamingFileDownloadCommand(t *testing.T) {
 
 	testCases := []testCase{
 		{
-			name:           "File download successfully",
-			args:           []string{"files-streaming", "download", bucketName, filepath.Base(file), tempDir, "--node-address", nodeAddress},
-			expectedOutput: []string{fmt.Sprintf("File downloaded successfully: Name=%s", filepath.Base(file))},
-			expectError:    false,
+			name: "File download successfully",
+			args: []string{"files-streaming", "download", bucketName, filepath.Base(file), tempDir, "--node-address", nodeAddress},
+			expectedOutput: []string{
+				fmt.Sprintf("File downloaded successfully: Name=%s", filepath.Base(file)),
+				fmt.Sprintf("Size=%d", 2*memory.MB.ToInt64()),
+				"TransferedSize=",
+			},
+			expectError: false,
 		},
 		{
 			name:           "Bucket name not provided",

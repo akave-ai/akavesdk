@@ -22,6 +22,7 @@ import (
 	mJaeger "storj.io/monkit-jaeger"
 
 	"akave.ai/akavesdk/private/memory"
+	"akave.ai/akavesdk/private/version"
 	"akave.ai/akavesdk/sdk"
 )
 
@@ -29,6 +30,14 @@ var (
 	rootCmd = &cobra.Command{
 		Use:   "akavecli",
 		Short: "A CLI for managing Akave resources",
+	}
+
+	versionCmd = &cobra.Command{
+		Use:  "version",
+		Args: cobra.NoArgs,
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Print(version.Info().Format())
+		},
 	}
 
 	bucketCmd = &cobra.Command{
@@ -270,7 +279,7 @@ var (
 	nodeRPCAddress    string
 	privateKey        string
 	maxConcurrency    int
-	blockSegmentSize  int64
+	blockPartSize     int64
 	useConnectionPool bool
 
 	// tracing.
@@ -326,6 +335,7 @@ func init() {
 	ipcFileCmd.AddCommand(ipcFileListCmd)
 	ipcFileCmd.AddCommand(ipcFileInfoCmd)
 
+	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(bucketCmd)
 	rootCmd.AddCommand(fileCmd)
 	rootCmd.AddCommand(fileStreamingCmd)
@@ -335,7 +345,7 @@ func init() {
 func initFlags() {
 	rootCmd.PersistentFlags().StringVar(&nodeRPCAddress, "node-address", "127.0.0.1:5000", "The address of the node RPC")
 	rootCmd.PersistentFlags().IntVar(&maxConcurrency, "maxConcurrency", 10, "Maximum concurrency level")
-	rootCmd.PersistentFlags().Int64Var(&blockSegmentSize, "blockSegmentSize", int64(memory.MB)*1, "Size of each block segment")
+	rootCmd.PersistentFlags().Int64Var(&blockPartSize, "blockPartSize", (memory.KiB * 128).ToInt64(), "Size of each block part")
 	rootCmd.PersistentFlags().BoolVar(&useConnectionPool, "useConnectionPool", true, "Use connection pool")
 	ipcCmd.PersistentFlags().StringVar(&privateKey, "private-key", "", "Private key for signing IPC transactions")
 }
@@ -417,7 +427,7 @@ func cmdCreateBucket(cmd *cobra.Command, args []string) (err error) {
 	defer mon.Task()(&ctx, args)(&err)
 	bucketName := args[0]
 
-	sdk, err := sdk.New(nodeRPCAddress, maxConcurrency, blockSegmentSize, useConnectionPool)
+	sdk, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool)
 	if err != nil {
 		return err
 	}
@@ -442,7 +452,7 @@ func cmdDeleteBucket(cmd *cobra.Command, args []string) (err error) {
 	defer mon.Task()(&ctx, args)(&err)
 	bucketName := args[0]
 
-	sdk, err := sdk.New(nodeRPCAddress, maxConcurrency, blockSegmentSize, useConnectionPool)
+	sdk, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool)
 	if err != nil {
 		return err
 	}
@@ -467,7 +477,7 @@ func cmdViewBucket(cmd *cobra.Command, args []string) (err error) {
 	defer mon.Task()(&ctx, args)(&err)
 	bucketName := args[0]
 
-	sdk, err := sdk.New(nodeRPCAddress, maxConcurrency, blockSegmentSize, useConnectionPool)
+	sdk, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool)
 	if err != nil {
 		return err
 	}
@@ -491,7 +501,7 @@ func cmdListBuckets(cmd *cobra.Command, args []string) (err error) {
 	ctx := cmd.Context()
 	defer mon.Task()(&ctx, args)(&err)
 
-	sdk, err := sdk.New(nodeRPCAddress, maxConcurrency, blockSegmentSize, useConnectionPool)
+	sdk, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool)
 	if err != nil {
 		return err
 	}
@@ -522,7 +532,7 @@ func cmdListFiles(cmd *cobra.Command, args []string) (err error) {
 	defer mon.Task()(&ctx, args)(&err)
 	bucketName := args[0]
 
-	sdk, err := sdk.New(nodeRPCAddress, maxConcurrency, blockSegmentSize, useConnectionPool)
+	sdk, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool)
 	if err != nil {
 		return err
 	}
@@ -554,7 +564,7 @@ func cmdFileInfo(cmd *cobra.Command, args []string) (err error) {
 	bucketName := args[0]
 	fileName := args[1]
 
-	sdk, err := sdk.New(nodeRPCAddress, maxConcurrency, blockSegmentSize, useConnectionPool)
+	sdk, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool)
 	if err != nil {
 		return err
 	}
@@ -596,7 +606,7 @@ func cmdFileUpload(cmd *cobra.Command, args []string) (err error) {
 		return fmt.Errorf("failed to get file info: %w", err)
 	}
 
-	sdk, err := sdk.New(nodeRPCAddress, maxConcurrency, blockSegmentSize, useConnectionPool)
+	sdk, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool)
 	if err != nil {
 		return err
 	}
@@ -627,7 +637,7 @@ func cmdFileDownload(cmd *cobra.Command, args []string) (err error) {
 	fileName := args[1]
 	destPath := args[2]
 
-	sdk, err := sdk.New(nodeRPCAddress, maxConcurrency, blockSegmentSize, useConnectionPool)
+	sdk, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool)
 	if err != nil {
 		return err
 	}
@@ -667,7 +677,7 @@ func cmdFileDownloadV2(cmd *cobra.Command, args []string) (err error) {
 	fileName := args[1]
 	destPath := args[2]
 
-	sdk, err := sdk.New(nodeRPCAddress, maxConcurrency, blockSegmentSize, useConnectionPool)
+	sdk, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool)
 	if err != nil {
 		return err
 	}
@@ -714,7 +724,7 @@ func cmdFileRangeDownload(cmd *cobra.Command, args []string) (err error) {
 		return fmt.Errorf("failed to parse ranges in %s: %w", blockRangeStr, err)
 	}
 
-	sdk, err := sdk.New(nodeRPCAddress, maxConcurrency, blockSegmentSize, useConnectionPool)
+	sdk, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool)
 	if err != nil {
 		return err
 	}

@@ -33,7 +33,7 @@ type IPC struct {
 	ipc    *ipc.Client
 
 	maxConcurrency    int
-	blockSegmentSize  int64
+	blockPartSize     int64
 	useConnectionPool bool
 	encryptionKey     []byte // empty means no encryption
 }
@@ -343,44 +343,34 @@ func (sdk *IPC) Upload(ctx context.Context, fileUpload FileUpload) (err error) {
 				return err
 			}
 
-			defer func() {
-				if _, closeErr := sender.CloseAndRecv(); closeErr != nil {
-					slog.Warn("failed to close and recv",
-						slog.Int("block_index", i),
-						slog.String("block_cid", block.CID),
-						slog.String("node_address", block.NodeAddress),
-						slog.String("error", closeErr.Error()),
-					)
-				}
-			}()
-
-			return uploadIPCBlockSegments(ctx, &pb.IPCFileBlockData{
+			err = sdk.uploadIPCBlockSegments(ctx, &pb.IPCFileBlockData{
 				Data: block.Data,
 				Cid:  block.CID,
-			}, sdk.blockSegmentSize, sender.Send)
+			}, sender.Send)
+			if err != nil {
+				return err
+			}
+
+			_, closeErr := sender.CloseAndRecv()
+			return closeErr
 		})
 	}
 
 	return errSDK.Wrap(g.Wait())
 }
 
-func uploadIPCBlockSegments(ctx context.Context, block *pb.IPCFileBlockData, blockSegmentSize int64, sender func(*pb.IPCFileBlockData) error) (err error) {
-	defer mon.Task()(&ctx, blockSegmentSize, block.Cid)(&err)
-
-	if blockSegmentSize <= 0 {
-		return fmt.Errorf("invalid blockSegmentSize: %d", blockSegmentSize)
-	}
+func (sdk *IPC) uploadIPCBlockSegments(ctx context.Context, block *pb.IPCFileBlockData, sender func(*pb.IPCFileBlockData) error) (err error) {
+	defer mon.Task()(&ctx, block.Cid)(&err)
 
 	data := block.Data
-	dataLen := len(data)
+	dataLen := int64(len(data))
 	if dataLen == 0 {
 		return nil
 	}
 
-	blockSegmentSizeInt := int(blockSegmentSize)
-
-	for i := 0; i < dataLen; i += blockSegmentSizeInt {
-		end := i + blockSegmentSizeInt
+	i := int64(0)
+	for ; i < dataLen; i += sdk.blockPartSize {
+		end := i + sdk.blockPartSize
 		if end > dataLen {
 			end = dataLen
 		}
@@ -488,17 +478,6 @@ func (sdk *IPC) Download(ctx context.Context, fileDownload FileDownload, writer 
 			if err != nil {
 				return err
 			}
-
-			defer func() {
-				if closeErr := downloadClient.CloseSend(); closeErr != nil {
-					slog.Warn("failed to close and send",
-						slog.Int("block_index", i),
-						slog.String("block_cid", block.CID),
-						slog.String("node_address", block.NodeAddress),
-						slog.String("error", closeErr.Error()),
-					)
-				}
-			}()
 
 			var buf bytes.Buffer
 			for {

@@ -17,6 +17,7 @@ import (
 	"github.com/ipfs/boxo/ipld/merkledag"
 	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-unixfs"
+	"github.com/ipfs/go-unixfs/importer/helpers"
 	"github.com/spacemonkeygo/monkit/v3"
 	"github.com/zeebo/errs/v2"
 	"golang.org/x/sync/errgroup"
@@ -31,10 +32,11 @@ import (
 )
 
 const (
-	BlockSize           = 1 * memory.MB  // BlockSize is 1MB, max supported block size is 1MiB
-	MaxChunkSize        = 32 * memory.MB // MaxChunkSize is 32MB
+	// BlockSize is the size of a block. Keep in mind that encryption adds some overhead and max supported block size(with added encryption) is 1MiB.
+	BlockSize           = 1 * memory.MB
 	minBucketNameLength = 3
 	minFileSize         = 127 // 127 bytes
+	maxFileSize         = 1 * memory.GiB
 )
 
 var errSDK = errs.Tag("sdk")
@@ -49,11 +51,12 @@ type SDK struct {
 	conn     *grpc.ClientConn
 	spClient *spclient.SPClient
 
-	maxConcurrency    int
-	blockSegmentSize  int64
-	useConnectionPool bool
-	privateKey        string
-	encryptionKey     []byte // empty means no encryption
+	maxConcurrency            int
+	blockPartSize             int64
+	useConnectionPool         bool
+	privateKey                string
+	encryptionKey             []byte // empty means no encryption
+	streamingMaxBlocksInChunk int
 }
 
 // WithEncryptionKey sets the encryption key for the SDK.
@@ -70,19 +73,31 @@ func WithPrivateKey(key string) func(*SDK) {
 	}
 }
 
+// WithStreamingMaxBlocksInChunk sets the max blocks in chunk for streaming.
+func WithStreamingMaxBlocksInChunk(maxBlocksInChunk int) func(*SDK) {
+	return func(s *SDK) {
+		s.streamingMaxBlocksInChunk = maxBlocksInChunk
+	}
+}
+
 // New returns a new SDK.
-func New(address string, maxConcurrency int, blockSegmentSize int64, useConnectionPool bool, options ...Option) (*SDK, error) {
+func New(address string, maxConcurrency int, blockPartSize int64, useConnectionPool bool, options ...Option) (*SDK, error) {
+	if blockPartSize <= 0 || blockPartSize > int64(helpers.BlockSizeLimit) {
+		return nil, fmt.Errorf("invalid blockPartSize: %d. Valid range is 1-%d", blockPartSize, helpers.BlockSizeLimit)
+	}
+
 	conn, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, err
 	}
 
 	s := &SDK{
-		client:            pb.NewNodeAPIClient(conn),
-		conn:              conn,
-		maxConcurrency:    maxConcurrency,
-		blockSegmentSize:  blockSegmentSize,
-		useConnectionPool: useConnectionPool,
+		client:                    pb.NewNodeAPIClient(conn),
+		conn:                      conn,
+		maxConcurrency:            maxConcurrency,
+		blockPartSize:             blockPartSize,
+		useConnectionPool:         useConnectionPool,
+		streamingMaxBlocksInChunk: 32,
 	}
 
 	for _, opt := range options {
@@ -110,9 +125,10 @@ func (sdk *SDK) StreamingAPI() *StreamingAPI {
 		client:            pb.NewStreamAPIClient(sdk.conn),
 		conn:              sdk.conn,
 		maxConcurrency:    sdk.maxConcurrency,
-		blockSegmentSize:  sdk.blockSegmentSize,
+		blockPartSize:     sdk.blockPartSize,
 		useConnectionPool: sdk.useConnectionPool,
 		encryptionKey:     sdk.encryptionKey,
+		maxBlocksInChunk:  sdk.streamingMaxBlocksInChunk,
 	}
 }
 
@@ -124,7 +140,7 @@ func (sdk *SDK) IPC() (*IPC, error) {
 		client:            client,
 		conn:              sdk.conn,
 		maxConcurrency:    sdk.maxConcurrency,
-		blockSegmentSize:  sdk.blockSegmentSize,
+		blockPartSize:     sdk.blockPartSize,
 		useConnectionPool: sdk.useConnectionPool,
 		encryptionKey:     sdk.encryptionKey,
 	}
@@ -285,6 +301,9 @@ func (sdk *SDK) CreateFileUpload(ctx context.Context, bucketName string, fileNam
 	if fileSize < minFileSize {
 		return FileUpload{}, errSDK.Errorf("file size is too small")
 	}
+	if fileSize > int64(maxFileSize) {
+		return FileUpload{}, errSDK.Errorf("file size is too large")
+	}
 
 	encKey, err := encryptionKey(sdk.encryptionKey, bucketName, fileName)
 	if err != nil {
@@ -381,26 +400,16 @@ func (sdk *SDK) Upload(ctx context.Context, fileUpload FileUpload) (err error) {
 				return err
 			}
 
-			defer func() {
-				if _, closeErr := sender.CloseAndRecv(); closeErr != nil {
-					slog.Warn("failed to close and recv",
-						slog.Int("block_index", i),
-						slog.String("block_cid", block.CID),
-						slog.String("node_address", block.NodeAddress),
-						slog.String("error", closeErr.Error()),
-					)
-				}
-			}()
-
-			err = uploadBlockSegments(ctx, &pb.FileBlockData{
+			err = sdk.uploadBlockSegments(ctx, &pb.FileBlockData{
 				Data: block.Data,
 				Cid:  block.CID,
-			}, sdk.blockSegmentSize, sender.Send)
+			}, sender.Send)
 			if err != nil {
 				return err
 			}
 
-			return nil
+			_, closeErr := sender.CloseAndRecv()
+			return closeErr
 		})
 	}
 
@@ -585,17 +594,6 @@ func (sdk *SDK) Download(ctx context.Context, fileDownload FileDownload, writer 
 				return err
 			}
 
-			defer func() {
-				if closeErr := downloadClient.CloseSend(); closeErr != nil {
-					slog.Warn("failed to close and send",
-						slog.Int("block_index", i),
-						slog.String("block_cid", block.CID),
-						slog.String("node_address", block.NodeAddress),
-						slog.String("error", closeErr.Error()),
-					)
-				}
-			}()
-
 			var buf bytes.Buffer
 			for {
 				blockData, err := downloadClient.Recv()
@@ -771,17 +769,6 @@ func (sdk *SDK) downloadBlock(ctx context.Context, block FileBlockSP, pool *conn
 		return nil, fmt.Errorf("failed to download block %s: %w", block.CID, err)
 	}
 
-	defer func() {
-		if closeErr := downloadClient.CloseSend(); closeErr != nil {
-			slog.Warn("failed to close and send",
-				slog.Int("block_index", index),
-				slog.String("block_cid", block.CID),
-				slog.String("node_address", block.NodeAddress),
-				slog.String("error", closeErr.Error()),
-			)
-		}
-	}()
-
 	var buf bytes.Buffer
 	for {
 		blockData, err := downloadClient.Recv()
@@ -817,6 +804,35 @@ func (sdk *SDK) FileDelete(ctx context.Context, bucketName, fileName string) (er
 	return nil
 }
 
+func (sdk *SDK) uploadBlockSegments(ctx context.Context, block *pb.FileBlockData, sender func(*pb.FileBlockData) error) (err error) {
+	defer mon.Task()(&ctx, block.Cid)(&err)
+
+	data := block.Data
+	dataLen := int64(len(data))
+	if dataLen == 0 {
+		return nil
+	}
+
+	i := int64(0)
+	for ; i < dataLen; i += sdk.blockPartSize {
+		end := i + sdk.blockPartSize
+		if end > dataLen {
+			end = dataLen
+		}
+
+		fileBlock := &pb.FileBlockData{
+			Data: data[i:end:end],
+			Cid:  block.Cid,
+		}
+
+		if err := sender(fileBlock); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // ExtractBlockData unwraps the block data from the block(either protobuf or raw).
 func ExtractBlockData(idStr string, data []byte) ([]byte, error) {
 	id, err := cid.Decode(idStr)
@@ -841,38 +857,10 @@ func ExtractBlockData(idStr string, data []byte) ([]byte, error) {
 	}
 }
 
-func uploadBlockSegments(ctx context.Context, block *pb.FileBlockData, blockSegmentSize int64, sender func(*pb.FileBlockData) error) (err error) {
-	defer mon.Task()(&ctx, blockSegmentSize, block.Cid)(&err)
-
-	if blockSegmentSize <= 0 {
-		return fmt.Errorf("invalid blockSegmentSize: %d", blockSegmentSize)
-	}
-
-	data := block.Data
-	dataLen := len(data)
-	if dataLen == 0 {
-		return nil
-	}
-
-	blockSegmentSizeInt := int(blockSegmentSize)
-
-	for i := 0; i < dataLen; i += blockSegmentSizeInt {
-		end := i + blockSegmentSizeInt
-		if end > dataLen {
-			end = dataLen
-		}
-
-		fileBlock := &pb.FileBlockData{
-			Data: data[i:end:end],
-			Cid:  block.Cid,
-		}
-
-		if err := sender(fileBlock); err != nil {
-			return err
-		}
-	}
-
-	return nil
+func BucketIDFromName(bucketName string) string {
+	h := sha256.New()
+	h.Write([]byte(bucketName))
+	return string(h.Sum(nil))
 }
 
 func encryptionKey(masterKey []byte, bucketName, fileName string) ([]byte, error) {
@@ -887,10 +875,4 @@ func encryptionKey(masterKey []byte, bucketName, fileName string) ([]byte, error
 	}
 
 	return key, nil
-}
-
-func BucketIDForName(bucketName string) string {
-	h := sha256.New()
-	h.Write([]byte(bucketName))
-	return string(h.Sum(nil))
 }

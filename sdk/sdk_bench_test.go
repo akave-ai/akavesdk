@@ -29,9 +29,9 @@ func BenchmarkUploadDownload(b *testing.B) {
 	for _, maxConcurrency := range maxConcurrencyValues {
 		b.Run(fmt.Sprintf("MaxConcurrency_%d", maxConcurrency), func(b *testing.B) {
 			for _, fileData := range filesData {
-				b.Run(fmt.Sprintf("FileSize %s", memory.FormatBytes(len(fileData))), func(b *testing.B) {
+				b.Run(fmt.Sprintf("FileSize %s", memory.FormatBytes(int64(len(fileData)))), func(b *testing.B) {
 					b.Run("Standalone connection", func(b *testing.B) {
-						akave, err := sdk.New(PickNodeRPCAddress(b), maxConcurrency, blockSegmentSize.ToInt64(), false)
+						akave, err := sdk.New(PickNodeRPCAddress(b), maxConcurrency, blockPartSize.ToInt64(), false)
 						require.NoError(b, err)
 
 						b.Cleanup(func() {
@@ -43,7 +43,7 @@ func BenchmarkUploadDownload(b *testing.B) {
 					})
 
 					b.Run("With Pool", func(b *testing.B) {
-						akave, err := sdk.New(PickNodeRPCAddress(b), maxConcurrency, blockSegmentSize.ToInt64(), true)
+						akave, err := sdk.New(PickNodeRPCAddress(b), maxConcurrency, blockPartSize.ToInt64(), true)
 						require.NoError(b, err)
 
 						b.Cleanup(func() {
