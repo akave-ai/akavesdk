@@ -49,7 +49,7 @@ var (
 
 	ipcBucketDeleteCmd = &cobra.Command{
 		Use:   "delete",
-		Short: "Removes a bucket",
+		Short: "Removes a bucket (Note: Bucket must be empty)",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
 				return NewCmdParamsError(fmt.Sprintf("create bucket command expects exactly 1 argument [bucket name]; got %d", len(args)))
@@ -218,7 +218,7 @@ func cmdCreateBucketIPC(cmd *cobra.Command, args []string) (err error) {
 		return fmt.Errorf("failed to create bucket: %w", err)
 	}
 
-	cmd.PrintErrf("Bucket created: ID=%s, CreatedAt=%s\n", result.ID, result.CreatedAt)
+	cmd.PrintErrf("Bucket created: ID=%s, CreatedAt=%s, TxHash=%s\n", result.ID, result.CreatedAt, result.TxHash)
 
 	return nil
 }
@@ -430,7 +430,7 @@ func cmdFileUploadIPC(cmd *cobra.Command, args []string) (err error) {
 		return fmt.Errorf("failed to upload file: %w", err)
 	}
 
-	cmd.PrintErrf("File uploaded successfully: Name=%s, RootCID=%s\n", fileName, fileUpload.RootCID)
+	cmd.PrintErrf("File uploaded successfully: Name=%s, RootCID=%s, TxHash=%s\n", fileName, fileUpload.RootCID, fileUpload.TxHash)
 
 	return nil
 }

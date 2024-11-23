@@ -51,6 +51,8 @@ func (sdk *IPC) CreateBucket(ctx context.Context, name string) (_ *BucketCreateR
 		return &BucketCreateResult{}, errSDK.Wrap(err)
 	}
 
+	txHash := tx.Hash().String()
+
 	if err := sdk.ipc.WaitForTx(ctx, tx.Hash()); err != nil {
 		return &BucketCreateResult{}, errSDK.Wrap(err)
 	}
@@ -63,6 +65,7 @@ func (sdk *IPC) CreateBucket(ctx context.Context, name string) (_ *BucketCreateR
 	return &BucketCreateResult{
 		ID:        hex.EncodeToString(bucket.Id[:]),
 		CreatedAt: time.Unix(bucket.CreatedAt.Int64(), 0),
+		TxHash:    txHash,
 	}, nil
 }
 
@@ -273,6 +276,8 @@ func (sdk *IPC) CreateFileUpload(ctx context.Context, bucketName string, fileNam
 		return FileUpload{}, errSDK.Wrap(err)
 	}
 
+	txHash := tx.Hash().String()
+
 	res, err := sdk.client.FileUploadCreate(ctx, req)
 	if err != nil {
 		return FileUpload{}, errSDK.Wrap(err)
@@ -299,6 +304,7 @@ func (sdk *IPC) CreateFileUpload(ctx context.Context, bucketName string, fileNam
 		FileName:   fileName,
 		FileSize:   fileSize,
 		Blocks:     blocks,
+		TxHash:     txHash,
 	}, nil
 }
 
