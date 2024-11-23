@@ -14,6 +14,7 @@ import (
 type BucketCreateResult struct {
 	ID        string
 	CreatedAt time.Time
+	TxHash    string
 }
 
 // Bucket is a bucket.
@@ -59,6 +60,7 @@ type FileUpload struct {
 	FileName   string
 	FileSize   int64
 	Blocks     []FileBlock
+	TxHash     string
 }
 
 // FileDownload represents a file download and some metadata.
