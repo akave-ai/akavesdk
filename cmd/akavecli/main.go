@@ -117,6 +117,9 @@ var (
 
 	tracingAgentAddr = "localhost:6831"
 	serviceName      = "akavecli"
+
+	keystoreDir     string
+	accountName     string
 )
 
 // CmdParamsError represents an error related to positional arguments.
@@ -159,10 +162,14 @@ func init() {
 	ipcFileCmd.AddCommand(ipcFileListCmd)
 	ipcFileCmd.AddCommand(ipcFileInfoCmd)
 
+	// Initialize wallet commands
+	initWalletCommands()
+
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(bucketCmd)
 	rootCmd.AddCommand(fileStreamingCmd)
 	rootCmd.AddCommand(ipcCmd)
+	rootCmd.AddCommand(walletCmd)
 }
 
 func initFlags() {
@@ -171,6 +178,9 @@ func initFlags() {
 	rootCmd.PersistentFlags().Int64Var(&blockPartSize, "blockPartSize", (memory.KiB * 128).ToInt64(), "Size of each block part")
 	rootCmd.PersistentFlags().BoolVar(&useConnectionPool, "useConnectionPool", true, "Use connection pool")
 	ipcCmd.PersistentFlags().StringVar(&privateKey, "private-key", "", "Private key for signing IPC transactions")
+
+	rootCmd.PersistentFlags().StringVar(&keystoreDir, "keystore-dir", getDefaultKeystoreDir(), "Directory for storing keystore files")
+	rootCmd.PersistentFlags().StringVar(&accountName, "account", "", "Wallet name to use for onchain operations")
 }
 
 func initTracing(log *zap.Logger) (*mJaeger.ThriftCollector, func()) {
@@ -264,7 +274,7 @@ func cmdCreateBucket(cmd *cobra.Command, args []string) (err error) {
 	if err != nil {
 		return fmt.Errorf("failed to create bucket: %w", err)
 	}
-
+	// Why is cmd returning a standard error? 
 	cmd.PrintErrf("Bucket created: ID=%s, CreatedAt=%s\n", result.Name, result.CreatedAt)
 
 	return nil
