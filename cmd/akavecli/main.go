@@ -118,7 +118,6 @@ var (
 	tracingAgentAddr = "localhost:6831"
 	serviceName      = "akavecli"
 
-	keystoreDir     string
 	accountName     string
 )
 
@@ -177,10 +176,9 @@ func initFlags() {
 	rootCmd.PersistentFlags().IntVar(&maxConcurrency, "maxConcurrency", 10, "Maximum concurrency level")
 	rootCmd.PersistentFlags().Int64Var(&blockPartSize, "blockPartSize", (memory.KiB * 128).ToInt64(), "Size of each block part")
 	rootCmd.PersistentFlags().BoolVar(&useConnectionPool, "useConnectionPool", true, "Use connection pool")
-	ipcCmd.PersistentFlags().StringVar(&privateKey, "private-key", "", "Private key for signing IPC transactions")
+	ipcCmd.PersistentFlags().StringVar(&privateKey, "private-key", "", "Optional: Private key for signing IPC transactions. If not provided, will use the specified or default wallet account")
 
-	rootCmd.PersistentFlags().StringVar(&keystoreDir, "keystore-dir", getDefaultKeystoreDir(), "Directory for storing keystore files")
-	rootCmd.PersistentFlags().StringVar(&accountName, "account", "", "Wallet name to use for onchain operations")
+	rootCmd.PersistentFlags().StringVar(&accountName, "account", "", "Optional: Wallet name to use for IPC operations. If not provided, will use the first available wallet")
 }
 
 func initTracing(log *zap.Logger) (*mJaeger.ThriftCollector, func()) {
@@ -274,7 +272,7 @@ func cmdCreateBucket(cmd *cobra.Command, args []string) (err error) {
 	if err != nil {
 		return fmt.Errorf("failed to create bucket: %w", err)
 	}
-	// Why is cmd returning a standard error? 
+
 	cmd.PrintErrf("Bucket created: ID=%s, CreatedAt=%s\n", result.Name, result.CreatedAt)
 
 	return nil

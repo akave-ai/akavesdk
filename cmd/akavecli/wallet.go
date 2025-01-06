@@ -4,15 +4,16 @@
 package main
 
 import (
+	"crypto/ecdsa"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
-	"syscall"
+	"strings"
 
-	"github.com/ethereum/go-ethereum/accounts"
-	"github.com/ethereum/go-ethereum/accounts/keystore"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/spf13/cobra"
-	"golang.org/x/term"
 )
 
 var (
@@ -41,6 +42,8 @@ var (
 		Args:  cobra.ExactArgs(1),
 		RunE:  cmdGetWalletKey,
 	}
+
+	walletFileExt = ".json"
 )
 
 func initWalletCommands() {
@@ -58,33 +61,13 @@ func getDefaultKeystoreDir() string {
 	return filepath.Join(homeDir, ".akave_wallets")
 }
 
-// getKeystore initializes and returns a keystore for the given account
-func getKeystore(accountName string) (*keystore.KeyStore, error) {
-	if accountName == "" {
-		return nil, fmt.Errorf("account name is required")
+// getWalletPath returns the path to a wallet file
+func getWalletPath(walletName string) (string, error) {
+	keystoreDir := getDefaultKeystoreDir()
+	if err := os.MkdirAll(keystoreDir, 0700); err != nil {
+		return "", fmt.Errorf("failed to create keystore directory: %w", err)
 	}
-	
-	accountDir := filepath.Join(keystoreDir, accountName)
-	if err := os.MkdirAll(accountDir, 0700); err != nil {
-		return nil, fmt.Errorf("failed to create keystore directory: %w", err)
-	}
-	
-	return keystore.NewKeyStore(accountDir, keystore.StandardScryptN, keystore.StandardScryptP), nil
-}
-
-// getAccount returns the first account from the keystore for the given account name
-func getAccount(accountName string) (accounts.Account, error) {
-	ks, err := getKeystore(accountName)
-	if err != nil {
-		return accounts.Account{}, err
-	}
-
-	accts := ks.Accounts()
-	if len(accts) == 0 {
-		return accounts.Account{}, fmt.Errorf("no accounts found for %s", accountName)
-	}
-
-	return accts[0], nil
+	return filepath.Join(keystoreDir, walletName+walletFileExt), nil
 }
 
 func cmdCreateWallet(cmd *cobra.Command, args []string) (err error) {
@@ -94,43 +77,60 @@ func cmdCreateWallet(cmd *cobra.Command, args []string) (err error) {
 	if len(args) != 1 {
 		return NewCmdParamsError("create wallet command expects exactly 1 argument [wallet name]")
 	}
-
-	walletName := args[0]
 	
-	// Get password
-	cmd.PrintErrf("Enter password for new wallet: ")
-	password, err := term.ReadPassword(int(syscall.Stdin))
+	walletName := args[0]
+	walletPath, err := getWalletPath(walletName)
 	if err != nil {
-		return fmt.Errorf("failed to read password: %w", err)
+		return err
 	}
-	cmd.PrintErrln()
 
-	// Confirm password
-	cmd.PrintErrf("Confirm password: ")
-	confirmPassword, err := term.ReadPassword(int(syscall.Stdin))
+	if _, err := os.Stat(walletPath); err == nil {
+		return fmt.Errorf("wallet with name '%s' already exists", walletName)
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("failed to check if wallet exists: %w", err)
+	}
+
+	//generate private key
+	privateKey, err := crypto.GenerateKey()
+    if err != nil {
+        cmd.PrintErrln("Failed to generate private key:", err)
+		return err
+    }
+
+    privateKeyBytes := crypto.FromECDSA(privateKey)
+
+    publicKey := privateKey.Public()
+    publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
+    if !ok {
+        cmd.PrintErrln("cannot assert type: publicKey is not of type *ecdsa.PublicKey")
+		return nil
+    }
+
+    address := crypto.PubkeyToAddress(*publicKeyECDSA).Hex()
+
+	// Create wallet info struct
+	walletInfo := struct {
+		Address    string `json:"address"`
+		PrivateKey string `json:"private_key"`
+	}{
+		Address:    address,
+		PrivateKey: hexutil.Encode(privateKeyBytes)[2:],
+	}
+
+	// Marshal to JSON
+	jsonData, err := json.MarshalIndent(walletInfo, "", "    ")
 	if err != nil {
-		return fmt.Errorf("failed to read confirmation password: %w", err)
-	}
-	cmd.PrintErrln()
-
-	// Verify passwords match
-	if string(password) != string(confirmPassword) {
-		return fmt.Errorf("passwords do not match")
+		cmd.PrintErrln("Failed to marshal wallet info:", err)
+		return err
 	}
 
-	// Create keystore and account
-	ks, err := getKeystore(walletName)
-	if err != nil {
-		return fmt.Errorf("failed to initialize keystore: %w", err)
+	// Write to file
+	if err := os.WriteFile(walletPath, jsonData, 0600); err != nil {
+		cmd.PrintErrln("Failed to write wallet file:", err)
+		return err
 	}
 
-	account, err := ks.NewAccount(string(password))
-	if err != nil {
-		return fmt.Errorf("failed to create account: %w", err)
-	}
-
-	cmd.PrintErrf("Wallet created: Address=%s\n", account.Address.Hex())
-	cmd.PrintErrf("Keystore location: %s\n", filepath.Join(keystoreDir, walletName))
+	cmd.Printf("Wallet (%s) created successfully at %s\n Fund your wallet with AKVF at https://faucet.akave.ai/ \n", walletName, walletPath)
 
 	return nil
 }
@@ -139,39 +139,45 @@ func cmdListWallets(cmd *cobra.Command, args []string) (err error) {
 	ctx := cmd.Context()
 	defer mon.Task()(&ctx, args)(&err)
 
-	// List all subdirectories in keystoreDir
+	// List all wallets	
+	keystoreDir := getDefaultKeystoreDir()
 	entries, err := os.ReadDir(keystoreDir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			cmd.PrintErrln("No wallets found")
+			cmd.PrintErrf("No wallets found in %s\n", keystoreDir)
 			return nil
 		}
-		return fmt.Errorf("failed to read keystore directory: %w", err)
+		return fmt.Errorf("failed to read directory: %w", err)
 	}
 
-	found := false
+	// Print header
+	cmd.Printf("%-20s\t%s\n", "NAME", "ADDRESS")
+	cmd.Printf("%-20s\t%s\n", "----", "-------")
+
 	for _, entry := range entries {
-		if entry.IsDir() {
-			found = true
-			// Get account details for this wallet
-			ks, err := getKeystore(entry.Name())
-			if err != nil {
-				cmd.PrintErrf("Warning: failed to read wallet %s: %v\n", entry.Name(), err)
-				continue
-			}
-
-			accounts := ks.Accounts()
-			if len(accounts) > 0 {
-				cmd.PrintErrf("Wallet: %s\n", entry.Name())
-				for _, acc := range accounts {
-					cmd.PrintErrf("  Address: %s\n", acc.Address.Hex())
-				}
-			}
+		if !strings.HasSuffix(entry.Name(), walletFileExt) {
+			continue
 		}
-	}
+		
+		// Read wallet file
+		walletPath := filepath.Join(keystoreDir, entry.Name())
+		data, err := os.ReadFile(walletPath)
+		if err != nil {
+			cmd.PrintErrf("Failed to read wallet %s: %v\n", entry.Name(), err)
+			continue
+		}
 
-	if !found {
-		cmd.PrintErrln("No wallets found")
+		// Parse wallet info
+		var walletInfo struct {
+			Address string `json:"address"`
+		}
+		if err := json.Unmarshal(data, &walletInfo); err != nil {
+			cmd.PrintErrf("Failed to parse wallet %s: %v\n", entry.Name(), err)
+			continue
+		}
+
+		name := strings.TrimSuffix(entry.Name(), walletFileExt)
+		cmd.Printf("%-20s\t%s\n", name, walletInfo.Address)
 	}
 
 	return nil
@@ -181,38 +187,78 @@ func cmdGetWalletKey(cmd *cobra.Command, args []string) (err error) {
 	ctx := cmd.Context()
 	defer mon.Task()(&ctx, args)(&err)
 
+	if len(args) != 1 {
+		return NewCmdParamsError("export-key command expects exactly 1 argument [wallet name]")
+	}
+
 	walletName := args[0]
-
-	// Get the account
-	account, err := getAccount(walletName)
+	walletPath, err := getWalletPath(walletName)
 	if err != nil {
-		return fmt.Errorf("failed to get account: %w", err)
+		return err
 	}
 
-	// Get password
-	cmd.PrintErrf("Enter password for wallet %s: ", walletName)
-	password, err := term.ReadPassword(int(syscall.Stdin))
+	jsonBytes, err := os.ReadFile(walletPath)
 	if err != nil {
-		return fmt.Errorf("failed to read password: %w", err)
-	}
-	cmd.PrintErrln()
-
-	// Read the keystore file
-	keystorePath := account.URL.Path
-	jsonBytes, err := os.ReadFile(keystorePath)
-	if err != nil {
-		return fmt.Errorf("failed to read keystore file: %w", err)
+		return fmt.Errorf("failed to read wallet file: %w", err)
 	}
 
-	// Decrypt the key
-	key, err := keystore.DecryptKey(jsonBytes, string(password))
-	if err != nil {
-		return fmt.Errorf("failed to decrypt keystore (wrong password?): %w", err)
+	// Parse wallet info
+	var walletInfo struct {
+		PrivateKey string `json:"private_key"`
+	}
+	if err := json.Unmarshal(jsonBytes, &walletInfo); err != nil {
+		return fmt.Errorf("failed to parse wallet file: %w", err)
 	}
 
-	// Convert private key to hex
-	privateKeyHex := fmt.Sprintf("%x", key.PrivateKey.D)
-	cmd.PrintErrf("Private key: %s\n", privateKeyHex)
+	cmd.Printf("Private key: %s\n", walletInfo.PrivateKey)
 
 	return nil
-} 
+}
+
+func getPrivateKeyFromWallet(walletName string) (string, string, error) {
+	if walletName == "" {
+		// If no wallet specified, try to use the first available wallet
+		keystoreDir := getDefaultKeystoreDir()
+		entries, err := os.ReadDir(keystoreDir)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return "", "", fmt.Errorf("no wallets found in %s", keystoreDir)
+			}
+			return "", "", fmt.Errorf("failed to read keystore directory: %w", err)
+		}
+
+		for _, entry := range entries {
+			if !strings.HasSuffix(entry.Name(), walletFileExt) {
+				continue
+			}
+			walletName = strings.TrimSuffix(entry.Name(), walletFileExt)
+			break
+		}
+
+		if walletName == "" {
+			return "", "", fmt.Errorf("no wallets found")
+		}
+	}
+
+	walletPath, err := getWalletPath(walletName)
+	if err != nil {
+		return "", "", err
+	}
+
+	data, err := os.ReadFile(walletPath)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to read wallet file: %w", err)
+	}
+
+	var walletInfo struct {
+		Address    string `json:"address"`
+		PrivateKey string `json:"private_key"`
+	}
+	if err := json.Unmarshal(data, &walletInfo); err != nil {
+		return "", "", fmt.Errorf("failed to parse wallet file: %w", err)
+	}
+
+	return walletInfo.PrivateKey, walletInfo.Address, nil
+}
+
+// TODO: Add a command to check wallet balance
