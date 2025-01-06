@@ -43,6 +43,13 @@ var (
 		RunE:  cmdGetWalletKey,
 	}
 
+	walletImportCmd = &cobra.Command{
+		Use:   "import",
+		Short: "Import a wallet using a private key",
+		Args:  cobra.ExactArgs(2),
+		RunE:  cmdImportWallet,
+	}
+
 	walletFileExt = ".json"
 )
 
@@ -50,6 +57,7 @@ func initWalletCommands() {
 	walletCmd.AddCommand(walletCreateCmd)
 	walletCmd.AddCommand(walletListCmd)
 	walletCmd.AddCommand(walletGetKeyCmd)
+	walletCmd.AddCommand(walletImportCmd)
 }
 
 // getDefaultKeystoreDir returns the default keystore directory
@@ -214,6 +222,70 @@ func cmdGetWalletKey(cmd *cobra.Command, args []string) (err error) {
 
 	return nil
 }
+
+
+func cmdImportWallet(cmd *cobra.Command, args []string) (err error) {
+	ctx := cmd.Context()
+	defer mon.Task()(&ctx, args)(&err)
+
+	walletName := args[0]
+	privateKeyHex := args[1]
+
+	// Add 0x prefix if not present
+	if !strings.HasPrefix(privateKeyHex, "0x") {
+		privateKeyHex = "0x" + privateKeyHex
+	}
+
+	// Validate private key format and derive public key/address
+	privateKeyBytes, err := hexutil.Decode(privateKeyHex)
+	if err != nil {
+		return fmt.Errorf("invalid private key format: %w", err)
+	}
+
+	privateKey, err := crypto.ToECDSA(privateKeyBytes)
+	if err != nil {
+		return fmt.Errorf("invalid private key: %w", err)
+	}
+
+	publicKey := privateKey.Public()
+	publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
+	if !ok {
+		return fmt.Errorf("error casting public key to ECDSA")
+	}
+
+	address := crypto.PubkeyToAddress(*publicKeyECDSA).Hex()
+
+	// Check if wallet name already exists
+	walletPath, err := getWalletPath(walletName)
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(walletPath); err == nil {
+		return fmt.Errorf("wallet with name '%s' already exists", walletName)
+	}
+
+	// Create wallet file
+	walletInfo := struct {
+		Address    string `json:"address"`
+		PrivateKey string `json:"private_key"`
+	}{
+		Address:    address,
+		PrivateKey: strings.TrimPrefix(privateKeyHex, "0x"),
+	}
+
+	jsonData, err := json.MarshalIndent(walletInfo, "", "    ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal wallet info: %w", err)
+	}
+
+	if err := os.WriteFile(walletPath, jsonData, 0600); err != nil {
+		return fmt.Errorf("failed to write wallet file: %w", err)
+	}
+
+	cmd.Printf("Wallet imported successfully:\nName: %s\nAddress: %s\n", walletName, address)
+	return nil
+}
+
 
 func getPrivateKeyFromWallet(walletName string) (string, string, error) {
 	if walletName == "" {
