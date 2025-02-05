@@ -4,10 +4,11 @@ The **Akave SDK CLI** (`akavesdk`) is a command-line tool designed to streamline
 
 Whether you're building a new integration or managing data across nodes, this SDK provides robust capabilities to help you achieve seamless, scalable storage solutions.
 
-```Base commit: 46c8fb62337e92d5c344e8abf4ce6dfa8c6d8afd```
+Use `akavecli version` to check you're on the newest release:
+```Base commit: ab9e5e6a1ccabad474e12ec7631cbffe9299d2c1```
 
 ## Build and test instructions
-Requirements: Go 1.22+
+Requirements: Go 1.23.4+
 
 `make build` - outputs a cli binary into `bin/akavecli`.<br>
 `make test` - runs tests.<br>
