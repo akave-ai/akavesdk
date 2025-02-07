@@ -16,7 +16,7 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/zeebo/errs"
 
-	"akave.ai/akavesdk/private/ipc/contracts"
+	"github.com/akave-ai/akavesdk/private/ipc/contracts"
 )
 
 // Config represents configuration for the storage contract client.

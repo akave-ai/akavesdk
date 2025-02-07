@@ -13,7 +13,7 @@ import (
 	"github.com/schollz/progressbar/v3"
 	"github.com/spf13/cobra"
 
-	"akave.ai/akavesdk/sdk"
+	"github.com/akave-ai/akavesdk/sdk"
 )
 
 var (

@@ -12,9 +12,9 @@ import (
 	"github.com/ipfs/go-cid"
 	"github.com/stretchr/testify/require"
 
-	"akave.ai/akavesdk/private/memory"
-	"akave.ai/akavesdk/private/testrand"
-	"akave.ai/akavesdk/sdk"
+	"github.com/akave-ai/akavesdk/private/memory"
+	"github.com/akave-ai/akavesdk/private/testrand"
+	"github.com/akave-ai/akavesdk/sdk"
 )
 
 func TestBuildChunkDag(t *testing.T) {

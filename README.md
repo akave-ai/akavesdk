@@ -7,7 +7,7 @@ Whether you're building a new integration or managing data across nodes, this SD
 ```Base commit: 46c8fb62337e92d5c344e8abf4ce6dfa8c6d8afd```
 
 ## Build and test instructions
-Requirements: Go 1.22+
+Requirements: Go 1.23+
 
 `make build` - outputs a cli binary into `bin/akavecli`.<br>
 `make test` - runs tests.<br>

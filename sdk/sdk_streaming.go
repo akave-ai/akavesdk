@@ -16,10 +16,10 @@ import (
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 
-	"akave.ai/akavesdk/private/cryptoutils"
-	"akave.ai/akavesdk/private/encryption"
-	"akave.ai/akavesdk/private/pb"
-	"akave.ai/akavesdk/private/spclient"
+	"github.com/akave-ai/akavesdk/private/cryptoutils"
+	"github.com/akave-ai/akavesdk/private/encryption"
+	"github.com/akave-ai/akavesdk/private/pb"
+	"github.com/akave-ai/akavesdk/private/spclient"
 )
 
 // StreamingAPI exposes SDK file streaming API.

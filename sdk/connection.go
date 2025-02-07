@@ -10,7 +10,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"akave.ai/akavesdk/private/pb"
+	"github.com/akave-ai/akavesdk/private/pb"
 )
 
 type connectionPool struct {

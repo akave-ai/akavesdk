@@ -22,7 +22,7 @@ import (
 	format "github.com/ipfs/go-ipld-format"
 	"github.com/zeebo/errs/v2"
 
-	"akave.ai/akavesdk/private/encryption"
+	"github.com/akave-ai/akavesdk/private/encryption"
 )
 
 var (

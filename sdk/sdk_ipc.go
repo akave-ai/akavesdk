@@ -20,9 +20,9 @@ import (
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 
-	"akave.ai/akavesdk/private/encryption"
-	"akave.ai/akavesdk/private/ipc"
-	"akave.ai/akavesdk/private/pb"
+	"github.com/akave-ai/akavesdk/private/encryption"
+	"github.com/akave-ai/akavesdk/private/ipc"
+	"github.com/akave-ai/akavesdk/private/pb"
 )
 
 // IPC exposes SDK ipc API.

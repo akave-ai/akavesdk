@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"akave.ai/akavesdk/private/cryptoutils"
+	"github.com/akave-ai/akavesdk/private/cryptoutils"
 )
 
 func TestCryptosource(t *testing.T) {

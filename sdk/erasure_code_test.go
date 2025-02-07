@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"akave.ai/akavesdk/sdk"
+	"github.com/akave-ai/akavesdk/sdk"
 )
 
 func TestErasureCodeInvalidParams(t *testing.T) {

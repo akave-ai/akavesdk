@@ -25,9 +25,9 @@ import (
 	"github.com/ipfs/go-unixfs/importer/helpers"
 	"github.com/stretchr/testify/require"
 
-	"akave.ai/akavesdk/private/memory"
-	"akave.ai/akavesdk/private/spclient"
-	"akave.ai/akavesdk/private/testrand"
+	"github.com/akave-ai/akavesdk/private/memory"
+	"github.com/akave-ai/akavesdk/private/spclient"
+	"github.com/akave-ai/akavesdk/private/testrand"
 )
 
 func TestFetchBlockFromFilecoin(t *testing.T) {

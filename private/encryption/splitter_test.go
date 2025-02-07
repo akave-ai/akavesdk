@@ -12,7 +12,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"akave.ai/akavesdk/private/encryption"
+	"github.com/akave-ai/akavesdk/private/encryption"
 )
 
 func TestSplitter(t *testing.T) {

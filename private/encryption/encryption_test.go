@@ -10,9 +10,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"akave.ai/akavesdk/private/encryption"
-	"akave.ai/akavesdk/private/memory"
-	"akave.ai/akavesdk/private/testrand"
+	"github.com/akave-ai/akavesdk/private/encryption"
+	"github.com/akave-ai/akavesdk/private/memory"
+	"github.com/akave-ai/akavesdk/private/testrand"
 )
 
 func TestEncryption(t *testing.T) {

@@ -20,9 +20,9 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"akave.ai/akavesdk/private/memory"
-	"akave.ai/akavesdk/private/testrand"
-	"akave.ai/akavesdk/sdk"
+	"github.com/akave-ai/akavesdk/private/memory"
+	"github.com/akave-ai/akavesdk/private/testrand"
+	"github.com/akave-ai/akavesdk/sdk"
 )
 
 const (

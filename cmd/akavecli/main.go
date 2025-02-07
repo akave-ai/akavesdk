@@ -20,9 +20,9 @@ import (
 	"golang.org/x/sync/errgroup"
 	mJaeger "storj.io/monkit-jaeger"
 
-	"akave.ai/akavesdk/private/memory"
-	"akave.ai/akavesdk/private/version"
-	"akave.ai/akavesdk/sdk"
+	"github.com/akave-ai/akavesdk/private/memory"
+	"github.com/akave-ai/akavesdk/private/version"
+	"github.com/akave-ai/akavesdk/sdk"
 )
 
 var (

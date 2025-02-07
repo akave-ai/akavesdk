@@ -1,4 +1,4 @@
-module akave.ai/akavesdk
+module github.com/akave-ai/akavesdk
 
 go 1.23.4
 

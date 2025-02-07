@@ -18,11 +18,11 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"akave.ai/akavesdk/private/encryption"
-	"akave.ai/akavesdk/private/ipc"
-	"akave.ai/akavesdk/private/memory"
-	"akave.ai/akavesdk/private/pb"
-	"akave.ai/akavesdk/private/spclient"
+	"github.com/akave-ai/akavesdk/private/encryption"
+	"github.com/akave-ai/akavesdk/private/ipc"
+	"github.com/akave-ai/akavesdk/private/memory"
+	"github.com/akave-ai/akavesdk/private/pb"
+	"github.com/akave-ai/akavesdk/private/spclient"
 )
 
 const (
