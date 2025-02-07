@@ -117,6 +117,8 @@ var (
 
 	tracingAgentAddr = "localhost:6831"
 	serviceName      = "akavecli"
+
+	accountName     string
 )
 
 // CmdParamsError represents an error related to positional arguments.
@@ -159,10 +161,14 @@ func init() {
 	ipcFileCmd.AddCommand(ipcFileListCmd)
 	ipcFileCmd.AddCommand(ipcFileInfoCmd)
 
+	// Initialize wallet commands
+	initWalletCommands()
+
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(bucketCmd)
 	rootCmd.AddCommand(fileStreamingCmd)
 	rootCmd.AddCommand(ipcCmd)
+	rootCmd.AddCommand(walletCmd)
 }
 
 func initFlags() {
@@ -170,7 +176,9 @@ func initFlags() {
 	rootCmd.PersistentFlags().IntVar(&maxConcurrency, "maxConcurrency", 10, "Maximum concurrency level")
 	rootCmd.PersistentFlags().Int64Var(&blockPartSize, "blockPartSize", (memory.KiB * 128).ToInt64(), "Size of each block part")
 	rootCmd.PersistentFlags().BoolVar(&useConnectionPool, "useConnectionPool", true, "Use connection pool")
-	ipcCmd.PersistentFlags().StringVar(&privateKey, "private-key", "", "Private key for signing IPC transactions")
+	ipcCmd.PersistentFlags().StringVar(&privateKey, "private-key", "", "Optional: Private key for signing IPC transactions. If not provided, will use the specified or default wallet account")
+
+	rootCmd.PersistentFlags().StringVar(&accountName, "account", "", "Optional: Wallet name to use for IPC operations. If not provided, will use the first available wallet")
 }
 
 func initTracing(log *zap.Logger) (*mJaeger.ThriftCollector, func()) {
