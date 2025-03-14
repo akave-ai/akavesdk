@@ -128,7 +128,7 @@ Uses same File, Bucket, Block and Chunk models as regular Akave Node API
 
 | Endpoint             | Description                                                                                                                                                                                                                                                                                                                                                                                                                              |
 |----------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `ConnectionParams`   | Retrieves dial URI and deployed smart contract address to interract with.                                                                                                                                                                                                                                                                                                                                                                |
+| `ConnectionParams`   | Retrieves dial URI and deployed smart contract address to interact with.                                                                                                                                                                                                                                                                                                                                                                |
 | `BucketCreate`       | Unimplemented. Functionality calls from SDK side.                                                                                                                                                                                                                                                                                                                                                                                        |
 | `BucketView`         | Retrieves single bucket metadata by bucket name and creator address. Calls smart contract method GetBucketByName, transforms response into API bucket model.                                                                                                                                                                                                                                                                             |
 | `BucketList`         | Retrieves all buckets metadata (ID, name, created at). For now doesn't sort by creator address.                                                                                                                                                                                                                                                                                                                                          |
@@ -235,8 +235,8 @@ Used in IPC endpoint FileDownloadCreate.
 | `FileDelete`         | Soft deletes a specific file by its name and bucket id                                                                                                        |
 
 ### SDK DAG utilities
-- `ChunkDAG` a struct that contains node's(in context of a DAG) metainformation: CID, sizes, block metadata
-- `DAGRoot` helps to build file's root CID. On each file chunk you have to add a link to chunk(specifiying chunk's CID and its node sizes)  
+- `ChunkDAG` a struct that contains node's(in context of a DAG) meta information: CID, sizes, block metadata
+- `DAGRoot` helps to build file's root CID. On each file chunk you have to add a link to chunk(specifying chunk's CID and its node sizes)  
 
 ### SKD IPC API
 
@@ -347,7 +347,7 @@ Used in IPC endpoint FileDownloadCreate.
   ```
 - **Download File**: Downloads a file from a bucket.
   ```sh
-  akavecli ipc file dowload <bucket-name> <file-name> <destination-path> \
+  akavecli ipc file download <bucket-name> <file-name> <destination-path> \
   --node-address=localhost:5000 \
   --private-key="some-private-key"
   ```
