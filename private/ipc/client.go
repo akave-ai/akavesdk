@@ -44,38 +44,39 @@ type Client struct {
 	Auth          *bind.TransactOpts
 	client        *ethclient.Client
 	ticker        *time.Ticker
+	
 }
 
 // Dial creates eth client, new smart-contract instance, auth.
 func Dial(ctx context.Context, config Config) (*Client, error) {
 	client, err := ethclient.Dial(config.DialURI)
 	if err != nil {
-		return &Client{}, err
+		return nil, err
 	}
 
 	privateKey, err := crypto.HexToECDSA(config.PrivateKey)
 	if err != nil {
-		return &Client{}, err
+		return nil, err
 	}
 
 	chainID, err := client.ChainID(ctx)
 	if err != nil {
-		return &Client{}, err
+		return nil, err
 	}
 
 	storage, err := contracts.NewStorage(common.HexToAddress(config.StorageContractAddress), client)
 	if err != nil {
-		return &Client{}, err
+		return nil, err
 	}
 
 	accessManager, err := contracts.NewAccessManager(common.HexToAddress(config.AccessContractAddress), client)
 	if err != nil {
-		return &Client{}, err
+		return nil, err
 	}
 
 	auth, err := bind.NewKeyedTransactorWithChainID(privateKey, chainID)
 	if err != nil {
-		return &Client{}, err
+		return nil, err
 	}
 
 	return &Client{
@@ -91,27 +92,27 @@ func Dial(ctx context.Context, config Config) (*Client, error) {
 func DeployStorage(ctx context.Context, config Config) (*Client, string, error) {
 	ethClient, err := ethclient.Dial(config.DialURI)
 	if err != nil {
-		return &Client{}, "", err
+		return nil, "", err
 	}
 
 	privateKey, err := crypto.HexToECDSA(config.PrivateKey)
 	if err != nil {
-		return &Client{}, "", err
+		return nil, "", err
 	}
 
 	chainID, err := ethClient.ChainID(ctx)
 	if err != nil {
-		return &Client{}, "", err
+		return nil, "", err
 	}
 
 	auth, err := bind.NewKeyedTransactorWithChainID(privateKey, chainID)
 	if err != nil {
-		return &Client{}, "", err
+		return nil, "", err
 	}
 
 	address, tx, storage, err := contracts.DeployStorage(auth, ethClient)
 	if err != nil {
-		return &Client{}, "", err
+		return nil, "", err
 	}
 
 	client := &Client{
@@ -122,12 +123,12 @@ func DeployStorage(ctx context.Context, config Config) (*Client, string, error) 
 	}
 
 	if err := client.WaitForTx(ctx, tx.Hash()); err != nil {
-		return &Client{}, "", err
+		return nil, "", err
 	}
 
 	_, tx, client.AccessManager, err = contracts.DeployAccessManager(auth, ethClient, address)
 	if err != nil {
-		return &Client{}, "", err
+		return nil, "", err
 	}
 
 	return client, address.String(), client.WaitForTx(ctx, tx.Hash())
