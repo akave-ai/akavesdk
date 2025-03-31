@@ -107,14 +107,14 @@ var (
 		RunE:  cmdListBuckets,
 	}
 
-	nodeRPCAddress    string
-	privateKey        string
-	encryptionKey     string
-	maxConcurrency    int
-	blockPartSize     int64
-	useConnectionPool bool
-	useErasureCoding  bool
-	filecoinFlag      bool
+	nodeRPCAddress       string
+	privateKey           string
+	encryptionKey        string
+	maxConcurrency       int
+	blockPartSize        int64
+	useConnectionPool    bool
+	disableErasureCoding bool
+	filecoinFlag         bool
 
 	// tracing.
 	mon = monkit.Package()
@@ -179,7 +179,7 @@ func initFlags() {
 
 	for _, cmd := range []*cobra.Command{ipcFileUploadCmd, ipcFileDownloadCmd, streamingFileUploadCmd, streamingFileDownloadCmd} {
 		cmd.Flags().StringVarP(&encryptionKey, "encryption-key", "e", "", "Encryption key for encrypting file data")
-		cmd.Flags().BoolVar(&useErasureCoding, "erasure-coding", false, "Use erasure coding")
+		cmd.Flags().BoolVar(&disableErasureCoding, "disable-erasure-coding", false, "Do not use erasure coding")
 	}
 }
 
@@ -369,7 +369,7 @@ func encryptionKeyBytes() ([]byte, error) {
 }
 
 func parityBlocks() int {
-	if useErasureCoding {
+	if !disableErasureCoding {
 		return 16
 	}
 	return 0

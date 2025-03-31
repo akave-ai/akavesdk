@@ -718,8 +718,8 @@ func TestIPCFileUploadCommand(t *testing.T) {
 			expectError:    false,
 		},
 		{
-			name:           "File upload successfully with erasure coding",
-			args:           []string{"ipc", "file", "upload", "--private-key", privateKey, bucketName, file2, "--node-address", nodeAddress, "--erasure-coding"},
+			name:           "File upload successfully without erasure coding",
+			args:           []string{"ipc", "file", "upload", "--private-key", privateKey, bucketName, file2, "--node-address", nodeAddress, "--disable-erasure-coding"},
 			expectedOutput: []string{fmt.Sprintf("File uploaded successfully: Name=%s", filepath.Base(file2))},
 			expectError:    false,
 		},
@@ -776,8 +776,8 @@ func TestIPCFileUploadCommandWithEncryption(t *testing.T) {
 			expectError:    false,
 		},
 		{
-			name:           "File upload successfully with erasure coding",
-			args:           []string{"ipc", "file", "upload", "--private-key", privateKey, bucketName, file2, "--node-address", nodeAddress, "--encryption-key", encKey, "--erasure-coding"},
+			name:           "File upload successfully without erasure coding",
+			args:           []string{"ipc", "file", "upload", "--private-key", privateKey, bucketName, file2, "--node-address", nodeAddress, "--encryption-key", encKey, "--disable-erasure-coding"},
 			expectedOutput: []string{fmt.Sprintf("File uploaded successfully: Name=%s", filepath.Base(file2))},
 			expectError:    false,
 		},
@@ -824,8 +824,8 @@ func TestStreamingFileUploadCommand(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name: "File uploaded successfully with erasure coding",
-			args: []string{"files-streaming", "upload", bucketName, file2, "--node-address", nodeAddress, "--erasure-coding"},
+			name: "File uploaded successfully without erasure coding",
+			args: []string{"files-streaming", "upload", bucketName, file2, "--node-address", nodeAddress, "--disable-erasure-coding"},
 			expectedOutput: []string{
 				fmt.Sprintf("File uploaded successfully: Name=%s", filepath.Base(file2)),
 				"RootCID=",
@@ -889,8 +889,8 @@ func TestStreamingFileUploadCommandWithEncryption(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name: "File upload successfully with erasure coding",
-			args: []string{"files-streaming", "upload", bucketName, file2, "--node-address", nodeAddress, "--encryption-key", encKey, "--erasure-coding"},
+			name: "File upload successfully without erasure coding",
+			args: []string{"files-streaming", "upload", bucketName, file2, "--node-address", nodeAddress, "--encryption-key", encKey, "--disable-erasure-coding"},
 			expectedOutput: []string{
 				fmt.Sprintf("File uploaded successfully: Name=%s", filepath.Base(file2)),
 				"RootCID=",
@@ -989,7 +989,7 @@ func TestIPCFileDownloadCommand(t *testing.T) {
 	}
 }
 
-func TestIPCFileDownloadCommandWithErasureCoding(t *testing.T) {
+func TestIPCFileDownloadCommandWithoutErasureCoding(t *testing.T) {
 	nodeAddress := PickNodeRPCAddress(t)
 	privateKey := PickPrivateKey(t)
 
@@ -1000,7 +1000,7 @@ func TestIPCFileDownloadCommandWithErasureCoding(t *testing.T) {
 	file, err := createTempFile(t, 2*memory.MB.ToInt64())
 	assert.NoError(t, err)
 
-	_, _, err = captureCobraOutput(rootCmd, []string{"ipc", "file", "upload", "--private-key", privateKey, bucketName, file, "--node-address", nodeAddress, "--erasure-coding"})
+	_, _, err = captureCobraOutput(rootCmd, []string{"ipc", "file", "upload", "--private-key", privateKey, bucketName, file, "--node-address", nodeAddress, "--disable-erasure-coding"})
 	assert.NoError(t, err)
 
 	tempDir, err := os.MkdirTemp("", "test-download")
@@ -1013,7 +1013,7 @@ func TestIPCFileDownloadCommandWithErasureCoding(t *testing.T) {
 	testCases := []testCase{
 		{
 			name:           "File download successfully",
-			args:           []string{"ipc", "file", "download", "--private-key", privateKey, bucketName, filepath.Base(file), tempDir, "--node-address", nodeAddress, "--erasure-coding"},
+			args:           []string{"ipc", "file", "download", "--private-key", privateKey, bucketName, filepath.Base(file), tempDir, "--node-address", nodeAddress, "--disable-erasure-coding"},
 			expectedOutput: []string{fmt.Sprintf("File downloaded successfully: Name=%s", filepath.Base(file))},
 			expectError:    false,
 		},
@@ -1083,7 +1083,7 @@ func TestIPCFileDownloadCommandWithEncryption(t *testing.T) {
 	}
 }
 
-func TestIPCFileDownloadCommandWithEncryptionAndErasureCoding(t *testing.T) {
+func TestIPCFileDownloadCommandWithEncryptionAndWithoutErasureCoding(t *testing.T) {
 	nodeAddress := PickNodeRPCAddress(t)
 	privateKey := PickPrivateKey(t)
 
@@ -1094,7 +1094,7 @@ func TestIPCFileDownloadCommandWithEncryptionAndErasureCoding(t *testing.T) {
 	file, err := createTempFile(t, 2*memory.MB.ToInt64())
 	assert.NoError(t, err)
 
-	_, _, err = captureCobraOutput(rootCmd, []string{"ipc", "file", "upload", "--private-key", privateKey, bucketName, file, "--node-address", nodeAddress, "--encryption-key", encKey, "--erasure-coding"})
+	_, _, err = captureCobraOutput(rootCmd, []string{"ipc", "file", "upload", "--private-key", privateKey, bucketName, file, "--node-address", nodeAddress, "--encryption-key", encKey, "--disable-erasure-coding"})
 	assert.NoError(t, err)
 
 	tempDir, err := os.MkdirTemp("", "test-download")
@@ -1107,7 +1107,7 @@ func TestIPCFileDownloadCommandWithEncryptionAndErasureCoding(t *testing.T) {
 	testCases := []testCase{
 		{
 			name:           "File download successfully",
-			args:           []string{"ipc", "file", "download", "--private-key", privateKey, bucketName, filepath.Base(file), tempDir, "--node-address", nodeAddress, "--encryption-key", encKey, "--erasure-coding"},
+			args:           []string{"ipc", "file", "download", "--private-key", privateKey, bucketName, filepath.Base(file), tempDir, "--node-address", nodeAddress, "--encryption-key", encKey, "--disable-erasure-coding"},
 			expectedOutput: []string{fmt.Sprintf("File downloaded successfully: Name=%s", filepath.Base(file))},
 			expectError:    false,
 		},
