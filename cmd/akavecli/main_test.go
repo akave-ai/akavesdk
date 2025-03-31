@@ -1083,7 +1083,7 @@ func TestIPCFileDownloadCommandWithEncryption(t *testing.T) {
 	}
 }
 
-func TestIPCFileDownloadCommandWithEncryptionAndWithErasureCoding(t *testing.T) {
+func TestIPCFileDownloadCommandWithEncryptionAndErasureCoding(t *testing.T) {
 	nodeAddress := PickNodeRPCAddress(t)
 	privateKey := PickPrivateKey(t)
 
