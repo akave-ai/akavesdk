@@ -79,7 +79,7 @@ func parseErrorsToHashes() []string {
 		"BlockAlreadyExists()", "BlockInvalid()", "BlockNonexists()", "InvalidArrayLength(uint256 cidsLength, uint256 sizesLength)", "InvalidFileBlocksCount()",
 		"InvalidLastBlockSize()", "InvalidEncodedSize()", "InvalidFileCID()", "IndexMismatch()", "NoPolicy()"}
 
-	errHashes := make([]string, 0)
+	errHashes := make([]string, len(errorsContract))
 
 	for _, errC := range errorsContract {
 		hash := crypto.Keccak256([]byte(errC))
