@@ -6,6 +6,7 @@ package testrand
 
 import (
 	"crypto/rand"
+	"math/big"
 	rand2 "math/rand"
 	"testing"
 )
@@ -43,4 +44,16 @@ func String(length int) string {
 		buffer[i] = dictionary[rand2.Intn(dictionaryLen)]
 	}
 	return string(buffer)
+}
+
+// GenerateRandomNonce generates a random bit.Int nonce.
+func GenerateRandomNonce(t testing.TB) *big.Int {
+	b := make([]byte, 32)
+
+	_, err := rand.Read(b)
+	if err != nil {
+		t.Fatalf("failed to read random data: %v", err)
+	}
+
+	return big.NewInt(0).SetBytes(b)
 }

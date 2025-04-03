@@ -119,6 +119,7 @@ type FileMeta struct {
 
 // IPCBucketCreateResult is the result of ipc bucket creation.
 type IPCBucketCreateResult struct {
+	ID        string
 	Name      string
 	CreatedAt time.Time
 }
@@ -151,6 +152,7 @@ type IPCFileMeta struct {
 	Name        string
 	BucketName  string
 	EncodedSize int64
+	IsPublic    bool
 	CreatedAt   time.Time
 }
 

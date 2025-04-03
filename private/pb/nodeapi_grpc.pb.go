@@ -247,9 +247,11 @@ const (
 	StreamAPI_FileDownloadChunkCreateV2_FullMethodName = "/nodeapi.StreamAPI/FileDownloadChunkCreateV2"
 	StreamAPI_FileDownloadBlock_FullMethodName         = "/nodeapi.StreamAPI/FileDownloadBlock"
 	StreamAPI_FileList_FullMethodName                  = "/nodeapi.StreamAPI/FileList"
+	StreamAPI_FileListChunks_FullMethodName            = "/nodeapi.StreamAPI/FileListChunks"
 	StreamAPI_FileView_FullMethodName                  = "/nodeapi.StreamAPI/FileView"
 	StreamAPI_FileVersions_FullMethodName              = "/nodeapi.StreamAPI/FileVersions"
 	StreamAPI_FileDelete_FullMethodName                = "/nodeapi.StreamAPI/FileDelete"
+	StreamAPI_FileUploadBlockUnary_FullMethodName      = "/nodeapi.StreamAPI/FileUploadBlockUnary"
 )
 
 // StreamAPIClient is the client API for StreamAPI service.
@@ -268,9 +270,11 @@ type StreamAPIClient interface {
 	FileDownloadChunkCreateV2(ctx context.Context, in *StreamFileDownloadChunkCreateRequest, opts ...grpc.CallOption) (*StreamFileDownloadChunkCreateResponseV2, error)
 	FileDownloadBlock(ctx context.Context, in *StreamFileDownloadBlockRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StreamFileBlockData], error)
 	FileList(ctx context.Context, in *StreamFileListRequest, opts ...grpc.CallOption) (*StreamFileListResponse, error)
+	FileListChunks(ctx context.Context, in *StreamFileListChunksRequest, opts ...grpc.CallOption) (*StreamFileListChunksResponse, error)
 	FileView(ctx context.Context, in *StreamFileViewRequest, opts ...grpc.CallOption) (*StreamFileViewResponse, error)
 	FileVersions(ctx context.Context, in *StreamFileListVersionsRequest, opts ...grpc.CallOption) (*StreamFileListVersionsResponse, error)
 	FileDelete(ctx context.Context, in *StreamFileDeleteRequest, opts ...grpc.CallOption) (*StreamFileDeleteResponse, error)
+	FileUploadBlockUnary(ctx context.Context, in *StreamFileBlockData, opts ...grpc.CallOption) (*StreamFileUploadBlockResponse, error)
 }
 
 type streamAPIClient struct {
@@ -393,6 +397,16 @@ func (c *streamAPIClient) FileList(ctx context.Context, in *StreamFileListReques
 	return out, nil
 }
 
+func (c *streamAPIClient) FileListChunks(ctx context.Context, in *StreamFileListChunksRequest, opts ...grpc.CallOption) (*StreamFileListChunksResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(StreamFileListChunksResponse)
+	err := c.cc.Invoke(ctx, StreamAPI_FileListChunks_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *streamAPIClient) FileView(ctx context.Context, in *StreamFileViewRequest, opts ...grpc.CallOption) (*StreamFileViewResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(StreamFileViewResponse)
@@ -423,6 +437,16 @@ func (c *streamAPIClient) FileDelete(ctx context.Context, in *StreamFileDeleteRe
 	return out, nil
 }
 
+func (c *streamAPIClient) FileUploadBlockUnary(ctx context.Context, in *StreamFileBlockData, opts ...grpc.CallOption) (*StreamFileUploadBlockResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(StreamFileUploadBlockResponse)
+	err := c.cc.Invoke(ctx, StreamAPI_FileUploadBlockUnary_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // StreamAPIServer is the server API for StreamAPI service.
 // All implementations must embed UnimplementedStreamAPIServer
 // for forward compatibility.
@@ -439,9 +463,11 @@ type StreamAPIServer interface {
 	FileDownloadChunkCreateV2(context.Context, *StreamFileDownloadChunkCreateRequest) (*StreamFileDownloadChunkCreateResponseV2, error)
 	FileDownloadBlock(*StreamFileDownloadBlockRequest, grpc.ServerStreamingServer[StreamFileBlockData]) error
 	FileList(context.Context, *StreamFileListRequest) (*StreamFileListResponse, error)
+	FileListChunks(context.Context, *StreamFileListChunksRequest) (*StreamFileListChunksResponse, error)
 	FileView(context.Context, *StreamFileViewRequest) (*StreamFileViewResponse, error)
 	FileVersions(context.Context, *StreamFileListVersionsRequest) (*StreamFileListVersionsResponse, error)
 	FileDelete(context.Context, *StreamFileDeleteRequest) (*StreamFileDeleteResponse, error)
+	FileUploadBlockUnary(context.Context, *StreamFileBlockData) (*StreamFileUploadBlockResponse, error)
 	mustEmbedUnimplementedStreamAPIServer()
 }
 
@@ -482,6 +508,9 @@ func (UnimplementedStreamAPIServer) FileDownloadBlock(*StreamFileDownloadBlockRe
 func (UnimplementedStreamAPIServer) FileList(context.Context, *StreamFileListRequest) (*StreamFileListResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method FileList not implemented")
 }
+func (UnimplementedStreamAPIServer) FileListChunks(context.Context, *StreamFileListChunksRequest) (*StreamFileListChunksResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method FileListChunks not implemented")
+}
 func (UnimplementedStreamAPIServer) FileView(context.Context, *StreamFileViewRequest) (*StreamFileViewResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method FileView not implemented")
 }
@@ -490,6 +519,9 @@ func (UnimplementedStreamAPIServer) FileVersions(context.Context, *StreamFileLis
 }
 func (UnimplementedStreamAPIServer) FileDelete(context.Context, *StreamFileDeleteRequest) (*StreamFileDeleteResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method FileDelete not implemented")
+}
+func (UnimplementedStreamAPIServer) FileUploadBlockUnary(context.Context, *StreamFileBlockData) (*StreamFileUploadBlockResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method FileUploadBlockUnary not implemented")
 }
 func (UnimplementedStreamAPIServer) mustEmbedUnimplementedStreamAPIServer() {}
 func (UnimplementedStreamAPIServer) testEmbeddedByValue()                   {}
@@ -674,6 +706,24 @@ func _StreamAPI_FileList_Handler(srv interface{}, ctx context.Context, dec func(
 	return interceptor(ctx, in, info, handler)
 }
 
+func _StreamAPI_FileListChunks_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StreamFileListChunksRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(StreamAPIServer).FileListChunks(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: StreamAPI_FileListChunks_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(StreamAPIServer).FileListChunks(ctx, req.(*StreamFileListChunksRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _StreamAPI_FileView_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(StreamFileViewRequest)
 	if err := dec(in); err != nil {
@@ -728,6 +778,24 @@ func _StreamAPI_FileDelete_Handler(srv interface{}, ctx context.Context, dec fun
 	return interceptor(ctx, in, info, handler)
 }
 
+func _StreamAPI_FileUploadBlockUnary_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StreamFileBlockData)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(StreamAPIServer).FileUploadBlockUnary(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: StreamAPI_FileUploadBlockUnary_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(StreamAPIServer).FileUploadBlockUnary(ctx, req.(*StreamFileBlockData))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // StreamAPI_ServiceDesc is the grpc.ServiceDesc for StreamAPI service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -768,6 +836,10 @@ var StreamAPI_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _StreamAPI_FileList_Handler,
 		},
 		{
+			MethodName: "FileListChunks",
+			Handler:    _StreamAPI_FileListChunks_Handler,
+		},
+		{
 			MethodName: "FileView",
 			Handler:    _StreamAPI_FileView_Handler,
 		},
@@ -778,6 +850,10 @@ var StreamAPI_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "FileDelete",
 			Handler:    _StreamAPI_FileDelete_Handler,
+		},
+		{
+			MethodName: "FileUploadBlockUnary",
+			Handler:    _StreamAPI_FileUploadBlockUnary_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

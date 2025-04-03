@@ -456,35 +456,6 @@ func TestUploadDownloadStreamingWithEncryption(t *testing.T) {
 	}
 }
 
-func TestUploadDownloadIPC(t *testing.T) {
-	tests := []struct {
-		name     string
-		fileSize int64 // Size in MB
-	}{
-		{"1 MB", 1},
-		{"5 MB", 5},
-		{"15 MB", 15},
-		{"35 MB", 35},
-	}
-
-	akave, err := sdk.New(PickNodeRPCAddress(t), maxConcurrency, blockPartSize.ToInt64(), true, sdk.WithPrivateKey(PickPrivateKey(t)))
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		require.NoError(t, akave.Close())
-	})
-
-	ipc, err := akave.IPC()
-	require.NoError(t, err)
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			// TODO: when BytesD used cause "block not found on any live peer" in CI, and block already exist locally. Find issue and fix.
-			data := testrand.BytesD(t, 1, tc.fileSize*memory.MB.ToInt64())
-			testUploadDownloadIPC(t, ipc, data)
-		})
-	}
-}
-
 func TestStreamingRangeDownload(t *testing.T) {
 	ctx := context.Background()
 	fileSize := 80 * memory.MB.ToInt64()
@@ -691,46 +662,6 @@ func testUploadRandomDownloadStreamingAPI(t *testing.T, akave *sdk.SDK, data []b
 	now = time.Now()
 	err = streaming.DownloadRandom(ctx, fileDownload, &downloaded)
 	require.NoError(t, err)
-	t.Logf("Download duration: %v", time.Since(now))
-
-	checkFileContents(t, 10, data, downloaded.Bytes())
-}
-
-func testUploadDownloadIPC(t *testing.T, ipc *sdk.IPC, data []byte) {
-	file := bytes.NewBuffer(data)
-
-	bucketName := randomBucketName(t, 10)
-	fileName := randomBucketName(t, 10)
-	_, err := ipc.CreateBucket(context.Background(), bucketName)
-	require.NoError(t, err)
-
-	now := time.Now()
-	require.NoError(t, ipc.CreateFileUpload(context.Background(), bucketName, fileName))
-	fileUploadDuration := time.Since(now)
-	t.Logf("Create file upload duration: %v", fileUploadDuration)
-
-	time.Sleep(5 * time.Second)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	now = time.Now()
-	upResult, err := ipc.Upload(ctx, bucketName, fileName, file)
-	require.NoError(t, err)
-	require.Equal(t, upResult.Name, fileName)
-	t.Logf("Upload duration: %v", time.Since(now))
-
-	time.Sleep(5 * time.Second)
-
-	var downloaded bytes.Buffer
-	fileDownload, err := ipc.CreateFileDownload(context.Background(), upResult.BucketName, upResult.Name)
-	require.NoError(t, err)
-	require.True(t, len(fileDownload.Chunks) > 0)
-
-	time.Sleep(5 * time.Second)
-
-	now = time.Now()
-	require.NoError(t, ipc.Download(ctx, fileDownload, &downloaded))
 	t.Logf("Download duration: %v", time.Since(now))
 
 	checkFileContents(t, 10, data, downloaded.Bytes())

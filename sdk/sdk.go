@@ -59,7 +59,15 @@ type SDK struct {
 	privateKey                string
 	encryptionKey             []byte // empty means no encryption
 	streamingMaxBlocksInChunk int
-	parityBlocksCount         int // 0 means no erasure coding applied
+	parityBlocksCount         int  // 0 means no erasure coding applied
+	useMetadataEncryption     bool // encrypts bucket and file names if true
+}
+
+// WithMetadataEncryption sets the metadata encryption for the SDK.
+func WithMetadataEncryption() func(*SDK) {
+	return func(s *SDK) {
+		s.useMetadataEncryption = true
+	}
 }
 
 // WithEncryptionKey sets the encryption key for the SDK.
@@ -164,31 +172,35 @@ func (sdk *SDK) StreamingAPI() *StreamingAPI {
 func (sdk *SDK) IPC() (*IPC, error) {
 	client := pb.NewIPCNodeAPIClient(sdk.conn)
 
-	res := &IPC{
-		client:            client,
-		conn:              sdk.conn,
-		maxConcurrency:    sdk.maxConcurrency,
-		blockPartSize:     sdk.blockPartSize,
-		useConnectionPool: sdk.useConnectionPool,
-		encryptionKey:     sdk.encryptionKey,
-		maxBlocksInChunk:  sdk.streamingMaxBlocksInChunk,
-	}
-
 	connParams, err := client.ConnectionParams(context.Background(), &pb.ConnectionParamsRequest{})
 	if err != nil {
 		return nil, err
 	}
 
-	res.ipc, err = ipc.Dial(context.Background(), ipc.Config{
+	ipcClient, err := ipc.Dial(context.Background(), ipc.Config{
 		DialURI:                connParams.DialUri,
 		PrivateKey:             sdk.privateKey,
-		StorageContractAddress: connParams.ContractAddress,
+		StorageContractAddress: connParams.StorageAddress,
+		AccessContractAddress:  connParams.AccessAddress,
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	return res, nil
+	return &IPC{
+		client:                client,
+		ipc:                   ipcClient,
+		chainID:               ipcClient.ChainID(),
+		storageAddress:        connParams.StorageAddress,
+		conn:                  sdk.conn,
+		privateKey:            sdk.privateKey,
+		maxConcurrency:        sdk.maxConcurrency,
+		blockPartSize:         sdk.blockPartSize,
+		useConnectionPool:     sdk.useConnectionPool,
+		encryptionKey:         sdk.encryptionKey,
+		maxBlocksInChunk:      sdk.streamingMaxBlocksInChunk,
+		useMetadataEncryption: sdk.useMetadataEncryption,
+	}, nil
 }
 
 // CreateBucket creates a new bucket.

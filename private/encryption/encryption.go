@@ -7,6 +7,7 @@ package encryption
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"io"
@@ -27,6 +28,26 @@ func Encrypt(key, data, info []byte) ([]byte, error) {
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
 		return nil, err
 	}
+
+	return gcm.Seal(nonce, nonce, data, nil), nil
+}
+
+// EncryptD encrypts the given data using the master key and the given info. Deterministic encryption.
+// WARNING: This function produces the same output for the same input. Only use it when deterministic
+// encryption is specifically required. For general encryption needs, use Encrypt() instead.
+func EncryptD(key, data, info []byte) ([]byte, error) {
+	gcm, err := makeGCMCipher(key, info)
+	if err != nil {
+		return nil, err
+	}
+
+	h := hmac.New(sha256.New, key)
+	_, err = h.Write(data)
+	if err != nil {
+		return nil, err
+	}
+
+	nonce := h.Sum(nil)[:gcm.NonceSize()]
 
 	return gcm.Seal(nonce, nonce, data, nil), nil
 }
