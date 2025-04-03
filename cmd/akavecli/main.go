@@ -107,14 +107,15 @@ var (
 		RunE:  cmdListBuckets,
 	}
 
-	nodeRPCAddress    string
-	privateKey        string
-	encryptionKey     string
-	maxConcurrency    int
-	blockPartSize     int64
-	useConnectionPool bool
-	useErasureCoding  bool
-	filecoinFlag      bool
+	nodeRPCAddress       string
+	privateKey           string
+	encryptionKey        string
+	maxConcurrency       int
+	blockPartSize        int64
+	useConnectionPool    bool
+	disableErasureCoding bool
+	filecoinFlag         bool
+	accountName          string
 
 	// tracing.
 	mon = monkit.Package()
@@ -162,11 +163,16 @@ func init() {
 	ipcFileCmd.AddCommand(ipcFileDownloadCmd)
 	ipcFileCmd.AddCommand(ipcFileListCmd)
 	ipcFileCmd.AddCommand(ipcFileInfoCmd)
+	ipcFileCmd.AddCommand(ipcFileDeleteCmd)
+
+	// Initialize wallet commands
+	initWalletCommands()
 
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(bucketCmd)
 	rootCmd.AddCommand(fileStreamingCmd)
 	rootCmd.AddCommand(ipcCmd)
+	rootCmd.AddCommand(walletCmd)
 }
 
 func initFlags() {
@@ -174,12 +180,13 @@ func initFlags() {
 	rootCmd.PersistentFlags().IntVar(&maxConcurrency, "maxConcurrency", 10, "Maximum concurrency level")
 	rootCmd.PersistentFlags().Int64Var(&blockPartSize, "blockPartSize", (memory.KiB * 128).ToInt64(), "Size of each block part")
 	rootCmd.PersistentFlags().BoolVar(&useConnectionPool, "useConnectionPool", true, "Use connection pool")
+	ipcCmd.PersistentFlags().StringVar(&accountName, "account", "", "Optional: Wallet name to use for IPC operations. If not provided, will use the first available wallet")
 	ipcCmd.PersistentFlags().StringVar(&privateKey, "private-key", "", "Private key for signing IPC transactions")
 	streamingFileDownloadCmd.Flags().BoolVar(&filecoinFlag, "filecoin", false, "downloads data from filecoin if they are already sealed there")
 
 	for _, cmd := range []*cobra.Command{ipcFileUploadCmd, ipcFileDownloadCmd, streamingFileUploadCmd, streamingFileDownloadCmd} {
 		cmd.Flags().StringVarP(&encryptionKey, "encryption-key", "e", "", "Encryption key for encrypting file data")
-		cmd.Flags().BoolVar(&useErasureCoding, "erasure-coding", false, "Use erasure coding")
+		cmd.Flags().BoolVar(&disableErasureCoding, "disable-erasure-coding", false, "Do not use erasure coding")
 	}
 }
 
@@ -369,7 +376,7 @@ func encryptionKeyBytes() ([]byte, error) {
 }
 
 func parityBlocks() int {
-	if useErasureCoding {
+	if !disableErasureCoding {
 		return 16
 	}
 	return 0

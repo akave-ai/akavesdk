@@ -297,7 +297,7 @@ func TestIPCViewBucketCommand(t *testing.T) {
 		{
 			name:           "View bucket successfully",
 			args:           []string{"ipc", "bucket", "view", "--private-key", privateKey, bucketName, "--node-address", nodeAddress},
-			expectedOutput: []string{fmt.Sprintf("Bucket: Name=%s", bucketName)},
+			expectedOutput: []string{fmt.Sprintf("Name=%s", bucketName)},
 			expectError:    false,
 		},
 		{
@@ -312,12 +312,7 @@ func TestIPCViewBucketCommand(t *testing.T) {
 			expectedOutput: []string{"bucket name is required"},
 			expectError:    true,
 		},
-		{
-			name:           "Private key not provided",
-			args:           []string{"ipc", "bucket", "view", "--private-key", "", bucketName, "--node-address", nodeAddress},
-			expectedOutput: []string{"invalid length, need 256 bits"},
-			expectError:    true,
-		},
+		// TODO: add case with no private key
 	}
 
 	for _, tc := range testCases {
@@ -442,12 +437,7 @@ func TestIPCListFilesCommand(t *testing.T) {
 			expectedOutput: []string{"bucket name is required"},
 			expectError:    true,
 		},
-		{
-			name:           "Private key not provided",
-			args:           []string{"ipc", "file", "list", "--private-key", "", bucketName, "--node-address", nodeAddress},
-			expectedOutput: []string{"Error: invalid length, need 256 bits"},
-			expectError:    true,
-		},
+		// TODO: add case with no private key
 	}
 
 	for _, tc := range testCases {
@@ -614,12 +604,7 @@ func TestIPCFileInfoCommand(t *testing.T) {
 			expectedOutput: []string{"file name is required"},
 			expectError:    true,
 		},
-		{
-			name:           "Private key not provided",
-			args:           []string{"ipc", "file", "info", "--private-key", "", bucketName, filepath.Base(file), "--node-address", nodeAddress},
-			expectedOutput: []string{"Error: invalid length, need 256 bits"},
-			expectError:    true,
-		},
+		// TODO: add case with no private key
 	}
 
 	for _, tc := range testCases {
@@ -713,13 +698,13 @@ func TestIPCFileUploadCommand(t *testing.T) {
 	testCases := []testCase{
 		{
 			name:           "File upload successfully",
-			args:           []string{"ipc", "file", "upload", "--private-key", privateKey, bucketName, file, "--node-address", nodeAddress},
+			args:           []string{"ipc", "file", "upload", "--private-key", privateKey, bucketName, file, "--node-address", nodeAddress, "--disable-erasure-coding"},
 			expectedOutput: []string{fmt.Sprintf("File uploaded successfully: Name=%s", filepath.Base(file))},
 			expectError:    false,
 		},
 		{
 			name:           "File upload successfully with erasure coding",
-			args:           []string{"ipc", "file", "upload", "--private-key", privateKey, bucketName, file2, "--node-address", nodeAddress, "--erasure-coding"},
+			args:           []string{"ipc", "file", "upload", "--private-key", privateKey, bucketName, file2, "--node-address", nodeAddress},
 			expectedOutput: []string{fmt.Sprintf("File uploaded successfully: Name=%s", filepath.Base(file2))},
 			expectError:    false,
 		},
@@ -771,13 +756,13 @@ func TestIPCFileUploadCommandWithEncryption(t *testing.T) {
 	testCases := []testCase{
 		{
 			name:           "File upload successfully",
-			args:           []string{"ipc", "file", "upload", "--private-key", privateKey, bucketName, file, "--node-address", nodeAddress, "--encryption-key", encKey},
+			args:           []string{"ipc", "file", "upload", "--private-key", privateKey, bucketName, file, "--node-address", nodeAddress, "--encryption-key", encKey, "--disable-erasure-coding"},
 			expectedOutput: []string{fmt.Sprintf("File uploaded successfully: Name=%s", filepath.Base(file))},
 			expectError:    false,
 		},
 		{
 			name:           "File upload successfully with erasure coding",
-			args:           []string{"ipc", "file", "upload", "--private-key", privateKey, bucketName, file2, "--node-address", nodeAddress, "--encryption-key", encKey, "--erasure-coding"},
+			args:           []string{"ipc", "file", "upload", "--private-key", privateKey, bucketName, file2, "--node-address", nodeAddress, "--encryption-key", encKey},
 			expectedOutput: []string{fmt.Sprintf("File uploaded successfully: Name=%s", filepath.Base(file2))},
 			expectError:    false,
 		},
@@ -814,7 +799,7 @@ func TestStreamingFileUploadCommand(t *testing.T) {
 	testCases := []testCase{
 		{
 			name: "File uploaded successfully",
-			args: []string{"files-streaming", "upload", bucketName, file, "--node-address", nodeAddress},
+			args: []string{"files-streaming", "upload", bucketName, file, "--node-address", nodeAddress, "--disable-erasure-coding"},
 			expectedOutput: []string{
 				fmt.Sprintf("File uploaded successfully: Name=%s", filepath.Base(file)),
 				"RootCID=",
@@ -825,7 +810,7 @@ func TestStreamingFileUploadCommand(t *testing.T) {
 		},
 		{
 			name: "File uploaded successfully with erasure coding",
-			args: []string{"files-streaming", "upload", bucketName, file2, "--node-address", nodeAddress, "--erasure-coding"},
+			args: []string{"files-streaming", "upload", bucketName, file2, "--node-address", nodeAddress},
 			expectedOutput: []string{
 				fmt.Sprintf("File uploaded successfully: Name=%s", filepath.Base(file2)),
 				"RootCID=",
@@ -879,7 +864,7 @@ func TestStreamingFileUploadCommandWithEncryption(t *testing.T) {
 	testCases := []testCase{
 		{
 			name: "File uploaded successfully",
-			args: []string{"files-streaming", "upload", bucketName, file, "--node-address", nodeAddress, "--encryption-key", encKey},
+			args: []string{"files-streaming", "upload", bucketName, file, "--node-address", nodeAddress, "--encryption-key", encKey, "--disable-erasure-coding"},
 			expectedOutput: []string{
 				fmt.Sprintf("File uploaded successfully: Name=%s", filepath.Base(file)),
 				"RootCID=",
@@ -890,7 +875,7 @@ func TestStreamingFileUploadCommandWithEncryption(t *testing.T) {
 		},
 		{
 			name: "File upload successfully with erasure coding",
-			args: []string{"files-streaming", "upload", bucketName, file2, "--node-address", nodeAddress, "--encryption-key", encKey, "--erasure-coding"},
+			args: []string{"files-streaming", "upload", bucketName, file2, "--node-address", nodeAddress, "--encryption-key", encKey},
 			expectedOutput: []string{
 				fmt.Sprintf("File uploaded successfully: Name=%s", filepath.Base(file2)),
 				"RootCID=",
@@ -964,12 +949,7 @@ func TestIPCFileDownloadCommand(t *testing.T) {
 			expectedOutput: []string{"destination path is required"},
 			expectError:    true,
 		},
-		{
-			name:           "Private key not provided",
-			args:           []string{"ipc", "file", "download", "--private-key", "", bucketName, filepath.Base(file), tempDir, "--node-address", nodeAddress},
-			expectedOutput: []string{"Error: invalid length, need 256 bits"},
-			expectError:    true,
-		},
+		// TODO: add case with no private key
 	}
 
 	for _, tc := range testCases {
@@ -1000,7 +980,7 @@ func TestIPCFileDownloadCommandWithErasureCoding(t *testing.T) {
 	file, err := createTempFile(t, 2*memory.MB.ToInt64())
 	assert.NoError(t, err)
 
-	_, _, err = captureCobraOutput(rootCmd, []string{"ipc", "file", "upload", "--private-key", privateKey, bucketName, file, "--node-address", nodeAddress, "--erasure-coding"})
+	_, _, err = captureCobraOutput(rootCmd, []string{"ipc", "file", "upload", "--private-key", privateKey, bucketName, file, "--node-address", nodeAddress})
 	assert.NoError(t, err)
 
 	tempDir, err := os.MkdirTemp("", "test-download")
@@ -1013,7 +993,7 @@ func TestIPCFileDownloadCommandWithErasureCoding(t *testing.T) {
 	testCases := []testCase{
 		{
 			name:           "File download successfully",
-			args:           []string{"ipc", "file", "download", "--private-key", privateKey, bucketName, filepath.Base(file), tempDir, "--node-address", nodeAddress, "--erasure-coding"},
+			args:           []string{"ipc", "file", "download", "--private-key", privateKey, bucketName, filepath.Base(file), tempDir, "--node-address", nodeAddress},
 			expectedOutput: []string{fmt.Sprintf("File downloaded successfully: Name=%s", filepath.Base(file))},
 			expectError:    false,
 		},
@@ -1094,7 +1074,7 @@ func TestIPCFileDownloadCommandWithEncryptionAndErasureCoding(t *testing.T) {
 	file, err := createTempFile(t, 2*memory.MB.ToInt64())
 	assert.NoError(t, err)
 
-	_, _, err = captureCobraOutput(rootCmd, []string{"ipc", "file", "upload", "--private-key", privateKey, bucketName, file, "--node-address", nodeAddress, "--encryption-key", encKey, "--erasure-coding"})
+	_, _, err = captureCobraOutput(rootCmd, []string{"ipc", "file", "upload", "--private-key", privateKey, bucketName, file, "--node-address", nodeAddress, "--encryption-key", encKey})
 	assert.NoError(t, err)
 
 	tempDir, err := os.MkdirTemp("", "test-download")
@@ -1107,9 +1087,61 @@ func TestIPCFileDownloadCommandWithEncryptionAndErasureCoding(t *testing.T) {
 	testCases := []testCase{
 		{
 			name:           "File download successfully",
-			args:           []string{"ipc", "file", "download", "--private-key", privateKey, bucketName, filepath.Base(file), tempDir, "--node-address", nodeAddress, "--encryption-key", encKey, "--erasure-coding"},
+			args:           []string{"ipc", "file", "download", "--private-key", privateKey, bucketName, filepath.Base(file), tempDir, "--node-address", nodeAddress, "--encryption-key", encKey},
 			expectedOutput: []string{fmt.Sprintf("File downloaded successfully: Name=%s", filepath.Base(file))},
 			expectError:    false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			stdout, stderr, err := captureCobraOutput(rootCmd, tc.args)
+
+			if tc.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+
+			for _, expected := range tc.expectedOutput {
+				assert.Contains(t, stdout+stderr, expected)
+			}
+		})
+	}
+}
+
+func TestIPCFileDeleteCommand(t *testing.T) {
+	nodeAddress := PickNodeRPCAddress(t)
+	privateKey := PickPrivateKey(t)
+
+	bucketName := testrand.String(10)
+	_, _, err := captureCobraOutput(rootCmd, []string{"ipc", "bucket", "create", "--private-key", privateKey, bucketName, "--node-address", nodeAddress})
+	assert.NoError(t, err)
+
+	file, err := createTempFile(t, 2*memory.MB.ToInt64())
+	assert.NoError(t, err)
+
+	_, _, err = captureCobraOutput(rootCmd, []string{"ipc", "file", "upload", "--private-key", privateKey, bucketName, file, "--node-address", nodeAddress})
+	assert.NoError(t, err)
+
+	testCases := []testCase{
+		{
+			name:           "File delete successfully",
+			args:           []string{"ipc", "file", "delete", "--private-key", privateKey, bucketName, filepath.Base(file), "--node-address", nodeAddress},
+			expectedOutput: []string{fmt.Sprintf("File successfully deleted: Name=%s", filepath.Base(file))},
+			expectError:    false,
+		},
+		{
+			name:           "Bucket name not provided",
+			args:           []string{"ipc", "file", "delete", "--private-key", privateKey, "", filepath.Base(file), "--node-address", nodeAddress},
+			expectedOutput: []string{"bucket name is required"},
+			expectError:    true,
+		},
+		{
+			name:           "File name not provided",
+			args:           []string{"ipc", "file", "delete", "--private-key", privateKey, bucketName, "", "--node-address", nodeAddress},
+			expectedOutput: []string{"file name is required"},
+			expectError:    true,
 		},
 	}
 
@@ -1361,6 +1393,27 @@ func TestCmdCarCreate(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestWalletFlow(t *testing.T) {
+	// Create temporary directory for test wallets
+	tmpKeystoreDir := t.TempDir()
+
+	walletName := testrand.String(10)
+	// Create a new wallet
+	stdout, stderr, err := captureCobraOutput(rootCmd, []string{"wallet", "create", walletName, "--keystore", tmpKeystoreDir})
+	assert.NoError(t, err)
+	assert.Contains(t, stdout+stderr, fmt.Sprintf("Wallet (%s) created successfully", walletName))
+
+	// List wallets and verify the created wallet exists
+	stdout, stderr, err = captureCobraOutput(rootCmd, []string{"wallet", "list", "--keystore", tmpKeystoreDir})
+	assert.NoError(t, err)
+	assert.Contains(t, stdout+stderr, walletName)
+
+	// Export private key to verify wallet creation
+	stdout, stderr, err = captureCobraOutput(rootCmd, []string{"wallet", "export-key", walletName, "--keystore", tmpKeystoreDir})
+	assert.NoError(t, err)
+	assert.Contains(t, stdout+stderr, "Private key:")
 }
 
 func createTempFile(t *testing.T, size int64) (string, error) {

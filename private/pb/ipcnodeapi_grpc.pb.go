@@ -20,10 +20,8 @@ const _ = grpc.SupportPackageIsVersion9
 
 const (
 	IPCNodeAPI_ConnectionParams_FullMethodName        = "/ipcnodeapi.IPCNodeAPI/ConnectionParams"
-	IPCNodeAPI_BucketCreate_FullMethodName            = "/ipcnodeapi.IPCNodeAPI/BucketCreate"
 	IPCNodeAPI_BucketView_FullMethodName              = "/ipcnodeapi.IPCNodeAPI/BucketView"
 	IPCNodeAPI_BucketList_FullMethodName              = "/ipcnodeapi.IPCNodeAPI/BucketList"
-	IPCNodeAPI_BucketDelete_FullMethodName            = "/ipcnodeapi.IPCNodeAPI/BucketDelete"
 	IPCNodeAPI_FileUploadChunkCreate_FullMethodName   = "/ipcnodeapi.IPCNodeAPI/FileUploadChunkCreate"
 	IPCNodeAPI_FileUploadBlock_FullMethodName         = "/ipcnodeapi.IPCNodeAPI/FileUploadBlock"
 	IPCNodeAPI_FileView_FullMethodName                = "/ipcnodeapi.IPCNodeAPI/FileView"
@@ -31,7 +29,8 @@ const (
 	IPCNodeAPI_FileDownloadChunkCreate_FullMethodName = "/ipcnodeapi.IPCNodeAPI/FileDownloadChunkCreate"
 	IPCNodeAPI_FileDownloadBlock_FullMethodName       = "/ipcnodeapi.IPCNodeAPI/FileDownloadBlock"
 	IPCNodeAPI_FileList_FullMethodName                = "/ipcnodeapi.IPCNodeAPI/FileList"
-	IPCNodeAPI_FileDelete_FullMethodName              = "/ipcnodeapi.IPCNodeAPI/FileDelete"
+	IPCNodeAPI_FileListChunks_FullMethodName          = "/ipcnodeapi.IPCNodeAPI/FileListChunks"
+	IPCNodeAPI_FileUploadBlockUnary_FullMethodName    = "/ipcnodeapi.IPCNodeAPI/FileUploadBlockUnary"
 )
 
 // IPCNodeAPIClient is the client API for IPCNodeAPI service.
@@ -40,10 +39,8 @@ const (
 type IPCNodeAPIClient interface {
 	ConnectionParams(ctx context.Context, in *ConnectionParamsRequest, opts ...grpc.CallOption) (*ConnectionParamsResponse, error)
 	// Bucket APIs.
-	BucketCreate(ctx context.Context, in *IPCBucketCreateRequest, opts ...grpc.CallOption) (*IPCBucketCreateResponse, error)
 	BucketView(ctx context.Context, in *IPCBucketViewRequest, opts ...grpc.CallOption) (*IPCBucketViewResponse, error)
 	BucketList(ctx context.Context, in *IPCBucketListRequest, opts ...grpc.CallOption) (*IPCBucketListResponse, error)
-	BucketDelete(ctx context.Context, in *IPCBucketDeleteRequest, opts ...grpc.CallOption) (*IPCBucketDeleteResponse, error)
 	// File APIs.
 	FileUploadChunkCreate(ctx context.Context, in *IPCFileUploadChunkCreateRequest, opts ...grpc.CallOption) (*IPCFileUploadChunkCreateResponse, error)
 	FileUploadBlock(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[IPCFileBlockData, IPCFileUploadBlockResponse], error)
@@ -52,7 +49,8 @@ type IPCNodeAPIClient interface {
 	FileDownloadChunkCreate(ctx context.Context, in *IPCFileDownloadChunkCreateRequest, opts ...grpc.CallOption) (*IPCFileDownloadChunkCreateResponse, error)
 	FileDownloadBlock(ctx context.Context, in *IPCFileDownloadBlockRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[IPCFileBlockData], error)
 	FileList(ctx context.Context, in *IPCFileListRequest, opts ...grpc.CallOption) (*IPCFileListResponse, error)
-	FileDelete(ctx context.Context, in *IPCFileDeleteRequest, opts ...grpc.CallOption) (*IPCFileDeleteResponse, error)
+	FileListChunks(ctx context.Context, in *IPCFileListChunksRequest, opts ...grpc.CallOption) (*IPCFileListChunksResponse, error)
+	FileUploadBlockUnary(ctx context.Context, in *IPCFileBlockData, opts ...grpc.CallOption) (*IPCFileUploadBlockResponse, error)
 }
 
 type iPCNodeAPIClient struct {
@@ -73,16 +71,6 @@ func (c *iPCNodeAPIClient) ConnectionParams(ctx context.Context, in *ConnectionP
 	return out, nil
 }
 
-func (c *iPCNodeAPIClient) BucketCreate(ctx context.Context, in *IPCBucketCreateRequest, opts ...grpc.CallOption) (*IPCBucketCreateResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(IPCBucketCreateResponse)
-	err := c.cc.Invoke(ctx, IPCNodeAPI_BucketCreate_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *iPCNodeAPIClient) BucketView(ctx context.Context, in *IPCBucketViewRequest, opts ...grpc.CallOption) (*IPCBucketViewResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(IPCBucketViewResponse)
@@ -97,16 +85,6 @@ func (c *iPCNodeAPIClient) BucketList(ctx context.Context, in *IPCBucketListRequ
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(IPCBucketListResponse)
 	err := c.cc.Invoke(ctx, IPCNodeAPI_BucketList_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *iPCNodeAPIClient) BucketDelete(ctx context.Context, in *IPCBucketDeleteRequest, opts ...grpc.CallOption) (*IPCBucketDeleteResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(IPCBucketDeleteResponse)
-	err := c.cc.Invoke(ctx, IPCNodeAPI_BucketDelete_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -195,10 +173,20 @@ func (c *iPCNodeAPIClient) FileList(ctx context.Context, in *IPCFileListRequest,
 	return out, nil
 }
 
-func (c *iPCNodeAPIClient) FileDelete(ctx context.Context, in *IPCFileDeleteRequest, opts ...grpc.CallOption) (*IPCFileDeleteResponse, error) {
+func (c *iPCNodeAPIClient) FileListChunks(ctx context.Context, in *IPCFileListChunksRequest, opts ...grpc.CallOption) (*IPCFileListChunksResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(IPCFileDeleteResponse)
-	err := c.cc.Invoke(ctx, IPCNodeAPI_FileDelete_FullMethodName, in, out, cOpts...)
+	out := new(IPCFileListChunksResponse)
+	err := c.cc.Invoke(ctx, IPCNodeAPI_FileListChunks_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *iPCNodeAPIClient) FileUploadBlockUnary(ctx context.Context, in *IPCFileBlockData, opts ...grpc.CallOption) (*IPCFileUploadBlockResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(IPCFileUploadBlockResponse)
+	err := c.cc.Invoke(ctx, IPCNodeAPI_FileUploadBlockUnary_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -211,10 +199,8 @@ func (c *iPCNodeAPIClient) FileDelete(ctx context.Context, in *IPCFileDeleteRequ
 type IPCNodeAPIServer interface {
 	ConnectionParams(context.Context, *ConnectionParamsRequest) (*ConnectionParamsResponse, error)
 	// Bucket APIs.
-	BucketCreate(context.Context, *IPCBucketCreateRequest) (*IPCBucketCreateResponse, error)
 	BucketView(context.Context, *IPCBucketViewRequest) (*IPCBucketViewResponse, error)
 	BucketList(context.Context, *IPCBucketListRequest) (*IPCBucketListResponse, error)
-	BucketDelete(context.Context, *IPCBucketDeleteRequest) (*IPCBucketDeleteResponse, error)
 	// File APIs.
 	FileUploadChunkCreate(context.Context, *IPCFileUploadChunkCreateRequest) (*IPCFileUploadChunkCreateResponse, error)
 	FileUploadBlock(grpc.ClientStreamingServer[IPCFileBlockData, IPCFileUploadBlockResponse]) error
@@ -223,7 +209,8 @@ type IPCNodeAPIServer interface {
 	FileDownloadChunkCreate(context.Context, *IPCFileDownloadChunkCreateRequest) (*IPCFileDownloadChunkCreateResponse, error)
 	FileDownloadBlock(*IPCFileDownloadBlockRequest, grpc.ServerStreamingServer[IPCFileBlockData]) error
 	FileList(context.Context, *IPCFileListRequest) (*IPCFileListResponse, error)
-	FileDelete(context.Context, *IPCFileDeleteRequest) (*IPCFileDeleteResponse, error)
+	FileListChunks(context.Context, *IPCFileListChunksRequest) (*IPCFileListChunksResponse, error)
+	FileUploadBlockUnary(context.Context, *IPCFileBlockData) (*IPCFileUploadBlockResponse, error)
 	mustEmbedUnimplementedIPCNodeAPIServer()
 }
 
@@ -237,17 +224,11 @@ type UnimplementedIPCNodeAPIServer struct{}
 func (UnimplementedIPCNodeAPIServer) ConnectionParams(context.Context, *ConnectionParamsRequest) (*ConnectionParamsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ConnectionParams not implemented")
 }
-func (UnimplementedIPCNodeAPIServer) BucketCreate(context.Context, *IPCBucketCreateRequest) (*IPCBucketCreateResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method BucketCreate not implemented")
-}
 func (UnimplementedIPCNodeAPIServer) BucketView(context.Context, *IPCBucketViewRequest) (*IPCBucketViewResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method BucketView not implemented")
 }
 func (UnimplementedIPCNodeAPIServer) BucketList(context.Context, *IPCBucketListRequest) (*IPCBucketListResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method BucketList not implemented")
-}
-func (UnimplementedIPCNodeAPIServer) BucketDelete(context.Context, *IPCBucketDeleteRequest) (*IPCBucketDeleteResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method BucketDelete not implemented")
 }
 func (UnimplementedIPCNodeAPIServer) FileUploadChunkCreate(context.Context, *IPCFileUploadChunkCreateRequest) (*IPCFileUploadChunkCreateResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method FileUploadChunkCreate not implemented")
@@ -270,8 +251,11 @@ func (UnimplementedIPCNodeAPIServer) FileDownloadBlock(*IPCFileDownloadBlockRequ
 func (UnimplementedIPCNodeAPIServer) FileList(context.Context, *IPCFileListRequest) (*IPCFileListResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method FileList not implemented")
 }
-func (UnimplementedIPCNodeAPIServer) FileDelete(context.Context, *IPCFileDeleteRequest) (*IPCFileDeleteResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method FileDelete not implemented")
+func (UnimplementedIPCNodeAPIServer) FileListChunks(context.Context, *IPCFileListChunksRequest) (*IPCFileListChunksResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method FileListChunks not implemented")
+}
+func (UnimplementedIPCNodeAPIServer) FileUploadBlockUnary(context.Context, *IPCFileBlockData) (*IPCFileUploadBlockResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method FileUploadBlockUnary not implemented")
 }
 func (UnimplementedIPCNodeAPIServer) mustEmbedUnimplementedIPCNodeAPIServer() {}
 func (UnimplementedIPCNodeAPIServer) testEmbeddedByValue()                    {}
@@ -312,24 +296,6 @@ func _IPCNodeAPI_ConnectionParams_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
-func _IPCNodeAPI_BucketCreate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(IPCBucketCreateRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(IPCNodeAPIServer).BucketCreate(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: IPCNodeAPI_BucketCreate_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(IPCNodeAPIServer).BucketCreate(ctx, req.(*IPCBucketCreateRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _IPCNodeAPI_BucketView_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(IPCBucketViewRequest)
 	if err := dec(in); err != nil {
@@ -362,24 +328,6 @@ func _IPCNodeAPI_BucketList_Handler(srv interface{}, ctx context.Context, dec fu
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(IPCNodeAPIServer).BucketList(ctx, req.(*IPCBucketListRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _IPCNodeAPI_BucketDelete_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(IPCBucketDeleteRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(IPCNodeAPIServer).BucketDelete(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: IPCNodeAPI_BucketDelete_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(IPCNodeAPIServer).BucketDelete(ctx, req.(*IPCBucketDeleteRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -492,20 +440,38 @@ func _IPCNodeAPI_FileList_Handler(srv interface{}, ctx context.Context, dec func
 	return interceptor(ctx, in, info, handler)
 }
 
-func _IPCNodeAPI_FileDelete_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(IPCFileDeleteRequest)
+func _IPCNodeAPI_FileListChunks_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(IPCFileListChunksRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(IPCNodeAPIServer).FileDelete(ctx, in)
+		return srv.(IPCNodeAPIServer).FileListChunks(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: IPCNodeAPI_FileDelete_FullMethodName,
+		FullMethod: IPCNodeAPI_FileListChunks_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(IPCNodeAPIServer).FileDelete(ctx, req.(*IPCFileDeleteRequest))
+		return srv.(IPCNodeAPIServer).FileListChunks(ctx, req.(*IPCFileListChunksRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _IPCNodeAPI_FileUploadBlockUnary_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(IPCFileBlockData)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IPCNodeAPIServer).FileUploadBlockUnary(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: IPCNodeAPI_FileUploadBlockUnary_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IPCNodeAPIServer).FileUploadBlockUnary(ctx, req.(*IPCFileBlockData))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -522,20 +488,12 @@ var IPCNodeAPI_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _IPCNodeAPI_ConnectionParams_Handler,
 		},
 		{
-			MethodName: "BucketCreate",
-			Handler:    _IPCNodeAPI_BucketCreate_Handler,
-		},
-		{
 			MethodName: "BucketView",
 			Handler:    _IPCNodeAPI_BucketView_Handler,
 		},
 		{
 			MethodName: "BucketList",
 			Handler:    _IPCNodeAPI_BucketList_Handler,
-		},
-		{
-			MethodName: "BucketDelete",
-			Handler:    _IPCNodeAPI_BucketDelete_Handler,
 		},
 		{
 			MethodName: "FileUploadChunkCreate",
@@ -558,8 +516,12 @@ var IPCNodeAPI_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _IPCNodeAPI_FileList_Handler,
 		},
 		{
-			MethodName: "FileDelete",
-			Handler:    _IPCNodeAPI_FileDelete_Handler,
+			MethodName: "FileListChunks",
+			Handler:    _IPCNodeAPI_FileListChunks_Handler,
+		},
+		{
+			MethodName: "FileUploadBlockUnary",
+			Handler:    _IPCNodeAPI_FileUploadBlockUnary_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

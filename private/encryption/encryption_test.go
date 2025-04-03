@@ -58,6 +58,39 @@ func TestEncryption(t *testing.T) {
 	}
 }
 
+func TestEncryptionDeterminismAndNonDeterminism(t *testing.T) {
+	key := []byte("key")
+	data := "quick brown fox jumps over the lazy dog"
+
+	t.Run("non deterministic encryption", func(t *testing.T) {
+		encryptedData1, err := encryption.Encrypt(key, []byte(data), nil)
+		require.NoError(t, err)
+		encryptedData2, err := encryption.Encrypt(key, []byte(data), nil)
+		require.NoError(t, err)
+		require.NotEqual(t, encryptedData1, encryptedData2)
+
+		decryptedData1, err := encryption.Decrypt(key, encryptedData1, nil)
+		require.NoError(t, err)
+		decryptedData2, err := encryption.Decrypt(key, encryptedData2, nil)
+		require.NoError(t, err)
+		require.Equal(t, data, string(decryptedData1))
+		require.Equal(t, data, string(decryptedData2))
+	})
+
+	t.Run("deterministic encryption", func(t *testing.T) {
+		encryptedData1, err := encryption.EncryptD(key, []byte(data), nil)
+		require.NoError(t, err)
+		encryptedData2, err := encryption.EncryptD(key, []byte(data), nil)
+		require.NoError(t, err)
+		require.Equal(t, encryptedData1, encryptedData2)
+
+		decryptedData, err := encryption.Decrypt(key, encryptedData1, nil)
+		require.NoError(t, err)
+
+		require.Equal(t, data, string(decryptedData))
+	})
+}
+
 func TestDataOverhead(t *testing.T) {
 	dataSizes := []int64{1, 16}
 	key, _ := encryption.DeriveKey([]byte("key"), []byte("some_info"))

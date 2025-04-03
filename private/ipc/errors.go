@@ -63,6 +63,50 @@ func ErrorHashToError(err error) error {
 				return errors.New("IndexMismatch")
 			case "0xcefa6b05":
 				return errors.New("NoPolicy")
+			case "0x5c371e92":
+				return errors.New("FileNotFilled")
+			case "0xdad01942":
+				return errors.New("BlockAlreadyFilled")
+			case "0x4b6b8ec8":
+				return errors.New("ChunkCIDMismatch")
+			case "0x0d6b18f0":
+				return errors.New("NotBucketOwner")
+			case "0xc4c1a0c5":
+				return errors.New("BucketNotFound")
+			case "0x3bcbb0de":
+				return errors.New("FileDoesNotExist")
+			case "0xa2c09fea":
+				return errors.New("NotThePolicyOwner")
+			case "0x94289054":
+				return errors.New("CloneArgumentsTooLong")
+			case "0x4ca249dc":
+				return errors.New("Create2EmptyBytecode")
+			case "0xf3714a9b":
+				return errors.New("ECDSAInvalidSignatureS")
+			case "0x367e2e27":
+				return errors.New("ECDSAInvalidSignatureLength")
+			case "0xf645eedf":
+				return errors.New("ECDSAInvalidSignature")
+			case "0xb73e95e1":
+				return errors.New("AlreadyWhitelisted")
+			case "0xe6c4247b":
+				return errors.New("InvalidAddress")
+			case "0x584a7938":
+				return errors.New("NotWhitelisted")
+			case "0x227bc153":
+				return errors.New("MathOverflowedMulDiv")
+			case "0xe7b199a6":
+				return errors.New("InvalidBlocksAmount")
+			case "0x59b452ef":
+				return errors.New("InvalidBlockIndex")
+			case "0x55cbc831":
+				return errors.New("LastChunkDuplicate")
+			case "0x2abde339":
+				return errors.New("FileNotExists")
+			case "0x48e0ed68":
+				return errors.New("NotSignedByBucketOwner")
+			case "0x923b8cbb":
+				return errors.New("NonceAlreadyUsed")
 			default:
 				return err
 			}
@@ -72,12 +116,15 @@ func ErrorHashToError(err error) error {
 	return err
 }
 
-// parseErrorsToHashes parses error from smart contract to hashes.
 func parseErrorsToHashes() []string {
 	errorsContract := []string{"BucketAlreadyExists()", "BucketInvalid()", "BucketInvalidOwner()", "BucketNonexists()", "BucketNonempty()",
 		"FileAlreadyExists()", "FileInvalid()", "FileNonexists()", "FileNonempty()", "FileNameDuplicate()", "FileFullyUploaded()", "FileChunkDuplicate()",
 		"BlockAlreadyExists()", "BlockInvalid()", "BlockNonexists()", "InvalidArrayLength(uint256 cidsLength, uint256 sizesLength)", "InvalidFileBlocksCount()",
-		"InvalidLastBlockSize()", "InvalidEncodedSize()", "InvalidFileCID()", "IndexMismatch()", "NoPolicy()"}
+		"InvalidLastBlockSize()", "InvalidEncodedSize()", "InvalidFileCID()", "IndexMismatch()", "NoPolicy()", "FileDoesNotExist()", "BucketNotFound()", "NotBucketOwner()",
+		"ChunkCIDMismatch(bytes fileCID)", "FileNotFilled()", "BlockAlreadyFilled()", "MathOverflowedMulDiv()", "NotWhitelisted()", "InvalidAddress()", "AlreadyWhitelisted()",
+		"ECDSAInvalidSignature()", "ECDSAInvalidSignatureLength(uint256 length)", "error ECDSAInvalidSignatureS(bytes32 s)", "Create2EmptyBytecode()", "CloneArgumentsTooLong()",
+		"NotThePolicyOwner()", "InvalidBlocksAmount()", "InvalidBlockIndex()", "LastChunkDuplicate()", "FileNotExists()", "Invalid signature: Not signed by bucket owner",
+		"Nonce already used"}
 
 	errHashes := make([]string, 0)
 

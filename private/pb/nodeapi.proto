@@ -63,9 +63,12 @@ service StreamAPI {
   rpc FileDownloadChunkCreateV2 (StreamFileDownloadChunkCreateRequest) returns (StreamFileDownloadChunkCreateResponseV2) {}
   rpc FileDownloadBlock (StreamFileDownloadBlockRequest) returns (stream StreamFileBlockData) {}
   rpc FileList (StreamFileListRequest) returns (StreamFileListResponse) {}
+  rpc FileListChunks (StreamFileListChunksRequest) returns (StreamFileListChunksResponse) {}
   rpc FileView (StreamFileViewRequest) returns (StreamFileViewResponse) {}
   rpc FileVersions (StreamFileListVersionsRequest) returns (StreamFileListVersionsResponse) {}
   rpc FileDelete (StreamFileDeleteRequest) returns (StreamFileDeleteResponse) {}
+  
+  rpc FileUploadBlockUnary (StreamFileBlockData) returns (StreamFileUploadBlockResponse) {}
 }
 
 message StreamFileUploadCreateRequest {
@@ -213,6 +216,15 @@ message File {
 
 message StreamFileListResponse {
   repeated File files = 1;
+}
+
+message StreamFileListChunksRequest {
+  string stream_id = 1;
+}
+
+message StreamFileListChunksResponse {
+  string stream_id = 1;
+  repeated string cids = 2;
 }
 
 message StreamFileViewRequest {

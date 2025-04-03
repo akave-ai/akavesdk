@@ -16,10 +16,14 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ipfs/go-cid"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 
+	"github.com/akave-ai/akavesdk/private/eip712"
 	"github.com/akave-ai/akavesdk/private/encryption"
 	"github.com/akave-ai/akavesdk/private/ipc"
 	"github.com/akave-ai/akavesdk/private/pb"
@@ -32,11 +36,15 @@ type IPC struct {
 	ipc         *ipc.Client
 	erasureCode *ErasureCode
 
-	maxConcurrency    int
-	blockPartSize     int64
-	useConnectionPool bool
-	encryptionKey     []byte // empty means no encryption
-	maxBlocksInChunk  int
+	privateKey            string
+	chainID               *big.Int
+	storageAddress        string
+	maxConcurrency        int
+	blockPartSize         int64
+	useConnectionPool     bool
+	encryptionKey         []byte // empty means no encryption
+	maxBlocksInChunk      int
+	useMetadataEncryption bool
 }
 
 // CreateBucket creates a new bucket.
@@ -45,6 +53,11 @@ func (sdk *IPC) CreateBucket(ctx context.Context, name string) (_ *IPCBucketCrea
 
 	if len(name) < minBucketNameLength {
 		return nil, errSDK.Errorf("invalid bucket name")
+	}
+
+	name, err = sdk.maybeEncryptMetadata(name, name)
+	if err != nil {
+		return nil, errSDK.Wrap(err)
 	}
 
 	tx, err := sdk.ipc.Storage.CreateBucket(sdk.ipc.Auth, name)
@@ -62,6 +75,7 @@ func (sdk *IPC) CreateBucket(ctx context.Context, name string) (_ *IPCBucketCrea
 	}
 
 	return &IPCBucketCreateResult{
+		ID:        hex.EncodeToString(bucket.Id[:]),
 		Name:      bucket.Name,
 		CreatedAt: time.Unix(bucket.CreatedAt.Int64(), 0),
 	}, nil
@@ -73,6 +87,11 @@ func (sdk *IPC) ViewBucket(ctx context.Context, bucketName string) (_ IPCBucket,
 
 	if bucketName == "" {
 		return IPCBucket{}, errSDK.Errorf("empty bucket name")
+	}
+
+	bucketName, err = sdk.maybeEncryptMetadata(bucketName, bucketName)
+	if err != nil {
+		return IPCBucket{}, errSDK.Wrap(err)
 	}
 
 	res, err := sdk.client.BucketView(ctx, &pb.IPCBucketViewRequest{
@@ -116,6 +135,11 @@ func (sdk *IPC) ListBuckets(ctx context.Context) (_ []IPCBucket, err error) {
 func (sdk *IPC) DeleteBucket(ctx context.Context, name string) (err error) {
 	defer mon.Task()(&ctx)(&err)
 
+	name, err = sdk.maybeEncryptMetadata(name, name)
+	if err != nil {
+		return errSDK.Wrap(err)
+	}
+
 	bucket, err := sdk.client.BucketView(ctx, &pb.IPCBucketViewRequest{
 		Name:    name,
 		Address: sdk.ipc.Auth.From.String(),
@@ -138,7 +162,7 @@ func (sdk *IPC) DeleteBucket(ctx context.Context, name string) (err error) {
 		return errSDK.Wrap(ipc.ErrorHashToError(err))
 	}
 
-	tx, err := sdk.ipc.Storage.DeleteBucket(sdk.ipc.Auth, bucketID, name, bucketIdx)
+	tx, err := sdk.ipc.Storage.DeleteBucket(sdk.ipc.Auth, bucketID, bucket.Name, bucketIdx)
 	if err != nil {
 		return errSDK.Wrap(ipc.ErrorHashToError(err))
 	}
@@ -147,10 +171,23 @@ func (sdk *IPC) DeleteBucket(ctx context.Context, name string) (err error) {
 }
 
 // FileInfo returns meta information for single file by bucket and file name.
-func (sdk *IPC) FileInfo(ctx context.Context, bucketName string, fileName string) (_ IPCFileMeta, err error) {
+func (sdk *IPC) FileInfo(ctx context.Context, bucketName, fileName string) (_ IPCFileMeta, err error) {
+	if bucketName == "" {
+		return IPCFileMeta{}, errSDK.Errorf("empty bucket name")
+	}
+
+	fileName, err = sdk.maybeEncryptMetadata(fileName, bucketName+"/"+fileName)
+	if err != nil {
+		return IPCFileMeta{}, errSDK.Wrap(err)
+	}
+	bucketName, err = sdk.maybeEncryptMetadata(bucketName, bucketName)
+	if err != nil {
+		return IPCFileMeta{}, errSDK.Wrap(err)
+	}
+
 	res, err := sdk.client.FileView(ctx, &pb.IPCFileViewRequest{
-		BucketName: bucketName,
 		FileName:   fileName,
+		BucketName: bucketName,
 		Address:    sdk.ipc.Auth.From.String(),
 	})
 	if err != nil {
@@ -161,6 +198,7 @@ func (sdk *IPC) FileInfo(ctx context.Context, bucketName string, fileName string
 		RootCID:     res.GetRootCid(),
 		Name:        res.GetFileName(),
 		BucketName:  res.GetBucketName(),
+		IsPublic:    res.GetIsPublic(),
 		EncodedSize: res.GetEncodedSize(),
 		CreatedAt:   res.CreatedAt.AsTime(),
 	}, nil
@@ -172,6 +210,11 @@ func (sdk *IPC) ListFiles(ctx context.Context, bucketName string) (_ []IPCFileLi
 
 	if bucketName == "" {
 		return nil, errSDK.Errorf("empty bucket name")
+	}
+
+	bucketName, err = sdk.maybeEncryptMetadata(bucketName, bucketName)
+	if err != nil {
+		return []IPCFileListItem{}, errSDK.Wrap(err)
 	}
 
 	resp, err := sdk.client.FileList(ctx, &pb.IPCFileListRequest{
@@ -203,6 +246,15 @@ func (sdk *IPC) FileDelete(ctx context.Context, bucketName, fileName string) (er
 		return errSDK.Errorf("empty bucket or file name. Bucket: '%s', File: '%s'", bucketName, fileName)
 	}
 
+	fileName, err = sdk.maybeEncryptMetadata(fileName, bucketName+"/"+fileName)
+	if err != nil {
+		return errSDK.Wrap(err)
+	}
+	bucketName, err = sdk.maybeEncryptMetadata(bucketName, bucketName)
+	if err != nil {
+		return errSDK.Wrap(err)
+	}
+
 	bucket, err := sdk.ipc.Storage.GetBucketByName(&bind.CallOpts{From: sdk.ipc.Auth.From}, bucketName)
 	if err != nil {
 		return errSDK.Wrap(ipc.ErrorHashToError(err))
@@ -227,10 +279,19 @@ func (sdk *IPC) FileDelete(ctx context.Context, bucketName, fileName string) (er
 }
 
 // CreateFileUpload creates a new file upload request.
-func (sdk *IPC) CreateFileUpload(ctx context.Context, bucketName string, fileName string) (err error) {
+func (sdk *IPC) CreateFileUpload(ctx context.Context, bucketName, fileName string) (err error) {
 	defer mon.Task()(&ctx, bucketName, fileName)(&err)
 	if bucketName == "" {
 		return errSDK.Errorf("empty bucket name")
+	}
+
+	fileName, err = sdk.maybeEncryptMetadata(fileName, bucketName+"/"+fileName)
+	if err != nil {
+		return errSDK.Wrap(err)
+	}
+	bucketName, err = sdk.maybeEncryptMetadata(bucketName, bucketName)
+	if err != nil {
+		return errSDK.Wrap(err)
 	}
 
 	bucket, err := sdk.ipc.Storage.GetBucketByName(&bind.CallOpts{From: sdk.ipc.Auth.From}, bucketName)
@@ -247,8 +308,24 @@ func (sdk *IPC) CreateFileUpload(ctx context.Context, bucketName string, fileNam
 }
 
 // Upload uploads a file using ipc api.
-func (sdk *IPC) Upload(ctx context.Context, bucketName string, fileName string, reader io.Reader) (_ IPCFileMetaV2, err error) {
+func (sdk *IPC) Upload(ctx context.Context, bucketName, fileName string, reader io.Reader) (_ IPCFileMetaV2, err error) {
 	defer mon.Task()(&ctx, bucketName, fileName)(&err)
+
+	if bucketName == "" {
+		return IPCFileMetaV2{}, errSDK.Errorf("empty bucket name")
+	}
+	if fileName == "" {
+		return IPCFileMetaV2{}, errSDK.Errorf("empty file name")
+	}
+
+	fileName, err = sdk.maybeEncryptMetadata(fileName, bucketName+"/"+fileName)
+	if err != nil {
+		return IPCFileMetaV2{}, errSDK.Wrap(err)
+	}
+	bucketName, err = sdk.maybeEncryptMetadata(bucketName, bucketName)
+	if err != nil {
+		return IPCFileMetaV2{}, errSDK.Wrap(err)
+	}
 
 	bucket, err := sdk.ipc.Storage.GetBucketByName(&bind.CallOpts{From: sdk.ipc.Auth.From}, bucketName)
 	if err != nil {
@@ -264,8 +341,6 @@ func (sdk *IPC) Upload(ctx context.Context, bucketName string, fileName string, 
 		chunkEncOverhead = EncryptionOverhead
 	}
 
-	isEmptyFile := true
-
 	bufferSize := sdk.maxBlocksInChunk * int(BlockSize)
 	if sdk.erasureCode != nil { // erasure coding enabled
 		bufferSize = sdk.erasureCode.DataBlocks * int(BlockSize)
@@ -278,27 +353,32 @@ func (sdk *IPC) Upload(ctx context.Context, bucketName string, fileName string, 
 		return IPCFileMetaV2{}, errSDK.Wrap(err)
 	}
 
-	var i, fileSize int64
-	for ; ; i++ {
+	var chunkCount, fileSize int64
+	for {
 		select {
 		case <-ctx.Done():
 			return IPCFileMetaV2{}, ctx.Err()
 		default:
 		}
 
-		n, err := io.ReadAtLeast(reader, buf, 1)
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				if isEmptyFile {
+		isLastChunk := false
+
+		n, readErr := io.ReadFull(reader, buf)
+		if readErr != nil {
+			if errors.Is(readErr, io.EOF) {
+				if chunkCount == 0 {
 					return IPCFileMetaV2{}, errSDK.Errorf("empty file")
 				}
 				break
 			}
-			return IPCFileMetaV2{}, err
-		}
-		isEmptyFile = false
+			if !errors.Is(readErr, io.ErrUnexpectedEOF) {
+				return IPCFileMetaV2{}, errSDK.Wrap(readErr)
+			}
 
-		chunkUpload, err := sdk.createChunkUpload(ctx, i, fileEncKey, buf[:n], bucket.Id, fileName)
+			isLastChunk = true
+		}
+
+		chunkUpload, err := sdk.createChunkUpload(ctx, chunkCount, fileEncKey, buf[:n], bucket.Id, fileName)
 		if err != nil {
 			return IPCFileMetaV2{}, err
 		}
@@ -309,7 +389,13 @@ func (sdk *IPC) Upload(ctx context.Context, bucketName string, fileName string, 
 		}
 
 		if err := sdk.uploadChunk(ctx, chunkUpload); err != nil {
-			return IPCFileMetaV2{}, errSDK.Wrap(err)
+			return IPCFileMetaV2{}, err
+		}
+
+		chunkCount++
+
+		if isLastChunk {
+			break
 		}
 	}
 
@@ -321,6 +407,19 @@ func (sdk *IPC) Upload(ctx context.Context, bucketName string, fileName string, 
 	fileMeta, err := sdk.ipc.Storage.GetFileByName(&bind.CallOpts{From: sdk.ipc.Auth.From}, bucket.Id, fileName)
 	if err != nil {
 		return IPCFileMetaV2{}, errSDK.Wrap(ipc.ErrorHashToError(err))
+	}
+
+	fileID := calculateFileID(bucket.Id[:], fileName)
+
+	var isFilled bool
+
+	for !isFilled {
+		isFilled, err = sdk.ipc.Storage.IsFileFilled(&bind.CallOpts{}, fileID)
+		if err != nil {
+			return IPCFileMetaV2{}, errSDK.Wrap(ipc.ErrorHashToError(err))
+		}
+
+		time.Sleep(time.Second)
 	}
 
 	tx, err := sdk.ipc.Storage.CommitFile(sdk.ipc.Auth, bucket.Id, fileName, new(big.Int).SetInt64(fileSize), rootCID.Bytes())
@@ -432,6 +531,21 @@ func (sdk *IPC) uploadChunk(ctx context.Context, fileChunkUpload IPCFileChunkUpl
 		return errSDK.Wrap(err)
 	}
 
+	privateKeyBytes, err := hex.DecodeString(sdk.privateKey)
+	if err != nil {
+		return errSDK.Wrap(err)
+	}
+
+	privateKey, err := crypto.ToECDSA(privateKeyBytes)
+	if err != nil {
+		return errSDK.Wrap(err)
+	}
+
+	chunkCid, err := cid.Decode(protoChunk.Cid)
+	if err != nil {
+		return errSDK.Wrap(err)
+	}
+
 	for i, block := range fileChunkUpload.Blocks {
 		deriveCtx := context.WithoutCancel(ctx)
 		g.Go(func() (err error) {
@@ -458,18 +572,74 @@ func (sdk *IPC) uploadChunk(ctx context.Context, fileChunkUpload IPCFileChunkUpl
 
 			sender, err := client.FileUploadBlock(ctx)
 			if err != nil {
-				return err
+				return errSDK.Wrap(err)
+			}
+
+			nonce, err := ipc.GenerateNonce()
+			if err != nil {
+				return errSDK.Wrap(err)
+			}
+
+			dataTypes := map[string][]eip712.TypedData{
+				"StorageData": {
+					{Name: "chunkCID", Type: "bytes"},
+					{Name: "blockCID", Type: "bytes32"},
+					{Name: "chunkIndex", Type: "uint256"},
+					{Name: "blockIndex", Type: "uint8"},
+					{Name: "nodeId", Type: "bytes"},
+					{Name: "nonce", Type: "uint256"},
+				},
+			}
+
+			blockCid, err := cid.Decode(block.CID)
+			if err != nil {
+				return errSDK.Wrap(err)
+			}
+
+			var bcid [32]byte
+			copy(bcid[:], blockCid.Bytes()[4:])
+
+			nodeID, err := peer.Decode(block.NodeID)
+			if err != nil {
+				return errSDK.Wrap(err)
+			}
+
+			id, err := nodeID.MarshalBinary()
+			if err != nil {
+				return errSDK.Wrap(err)
+			}
+
+			dataMessage := map[string]interface{}{
+				"chunkCID":   chunkCid.Bytes(),
+				"blockCID":   bcid,
+				"chunkIndex": big.NewInt(fileChunkUpload.Index),
+				"blockIndex": uint8(i),
+				"nodeId":     id,
+				"nonce":      nonce,
+			}
+
+			signature, err := eip712.Sign(privateKey, eip712.Domain{
+				Name:              "Storage",
+				Version:           "1",
+				ChainID:           sdk.chainID,
+				VerifyingContract: common.HexToAddress(sdk.storageAddress),
+			}, dataMessage, dataTypes)
+			if err != nil {
+				return errSDK.Wrap(err)
 			}
 
 			if err := sdk.uploadIPCBlockSegments(ctx, &pb.IPCFileBlockData{
-				Data:     block.Data,
-				Cid:      block.CID,
-				Index:    int64(i),
-				Chunk:    protoChunk,
-				BucketId: fileChunkUpload.BucketID[:],
-				FileName: fileChunkUpload.FileName,
+				Data:      block.Data,
+				Cid:       block.CID,
+				Index:     int64(i),
+				Chunk:     protoChunk,
+				BucketId:  fileChunkUpload.BucketID[:],
+				FileName:  fileChunkUpload.FileName,
+				Signature: hex.EncodeToString(signature),
+				Nonce:     nonce.Bytes(),
+				NodeId:    id,
 			}, sender.Send); err != nil && !errors.Is(err, io.EOF) {
-				return err
+				return errSDK.Wrap(err)
 			}
 
 			_, closeErr := sender.CloseAndRecv()
@@ -520,14 +690,22 @@ func (sdk *IPC) uploadIPCBlockSegments(ctx context.Context, block *pb.IPCFileBlo
 }
 
 // CreateFileDownload creates a new download request.
-func (sdk *IPC) CreateFileDownload(ctx context.Context, bucketName string, fileName string) (_ IPCFileDownload, innerErr error) {
+func (sdk *IPC) CreateFileDownload(ctx context.Context, bucketName, fileName string) (_ IPCFileDownload, innerErr error) {
 	defer mon.Task()(&ctx, bucketName, fileName)(&innerErr)
 	if bucketName == "" {
 		return IPCFileDownload{}, errSDK.Errorf("empty bucket id")
 	}
-
 	if fileName == "" {
 		return IPCFileDownload{}, errSDK.Errorf("empty file name")
+	}
+
+	fileName, err := sdk.maybeEncryptMetadata(fileName, bucketName+"/"+fileName)
+	if err != nil {
+		return IPCFileDownload{}, errSDK.Wrap(err)
+	}
+	bucketName, err = sdk.maybeEncryptMetadata(bucketName, bucketName)
+	if err != nil {
+		return IPCFileDownload{}, errSDK.Wrap(err)
 	}
 
 	res, err := sdk.client.FileDownloadCreate(ctx, &pb.IPCFileDownloadCreateRequest{
@@ -554,6 +732,37 @@ func (sdk *IPC) CreateFileDownload(ctx context.Context, bucketName string, fileN
 		Name:       fileName,
 		Chunks:     chunks,
 	}, nil
+}
+
+// FileSetPublicAccess change file status from/to public.
+func (sdk *IPC) FileSetPublicAccess(ctx context.Context, bucketName, fileName string, isPublic bool) (err error) {
+	defer mon.Task()(&ctx, bucketName, fileName)(&err)
+
+	fileName, err = sdk.maybeEncryptMetadata(fileName, bucketName+"/"+fileName)
+	if err != nil {
+		return errSDK.Wrap(err)
+	}
+	bucketName, err = sdk.maybeEncryptMetadata(bucketName, bucketName)
+	if err != nil {
+		return errSDK.Wrap(err)
+	}
+
+	bucket, err := sdk.ipc.Storage.GetBucketByName(&bind.CallOpts{From: sdk.ipc.Auth.From}, bucketName)
+	if err != nil {
+		return errSDK.Wrap(ipc.ErrorHashToError(err))
+	}
+
+	file, err := sdk.ipc.Storage.GetFileByName(&bind.CallOpts{}, bucket.Id, fileName)
+	if err != nil {
+		return errSDK.Wrap(ipc.ErrorHashToError(err))
+	}
+
+	tx, err := sdk.ipc.AccessManager.ChangePublicAccess(sdk.ipc.Auth, file.Id, isPublic)
+	if err != nil {
+		return errSDK.Wrap(err)
+	}
+
+	return errSDK.Wrap(sdk.ipc.WaitForTx(ctx, tx.Hash()))
 }
 
 // Download downloads a file using ipc api.
@@ -757,6 +966,19 @@ func (sdk *IPC) fetchBlockData(
 	return buf.Bytes(), nil
 }
 
+// Encrypts the given metadata if metadata encyption is enabled and encryption key is set.
+func (sdk *IPC) maybeEncryptMetadata(value, derivationPath string) (string, error) {
+	if len(sdk.encryptionKey) > 0 && sdk.useMetadataEncryption {
+		encrypted, err := encryption.EncryptD(sdk.encryptionKey, []byte(value), []byte(derivationPath))
+		if err != nil {
+			return "", err
+		}
+		return hex.EncodeToString(encrypted), nil
+	}
+
+	return value, nil
+}
+
 func toIPCProtoChunk(chunkCid string, index, size int64, blocks []FileBlockUpload) ([][32]byte, []*big.Int, *pb.IPCChunk, error) {
 	var (
 		cids  = make([][32]byte, 0)
@@ -784,4 +1006,12 @@ func toIPCProtoChunk(chunkCid string, index, size int64, blocks []FileBlockUploa
 		Size:   size,
 		Blocks: pbBlocks,
 	}, nil
+}
+
+func calculateFileID(bucketID []byte, name string) common.Hash {
+	var b []byte
+	b = append(b, bucketID...)
+	b = append(b, name...)
+
+	return crypto.Keccak256Hash(b)
 }

@@ -151,8 +151,6 @@ func (sdk *StreamingAPI) Upload(ctx context.Context, upload FileUpload, reader i
 		chunkEncOverhead = EncryptionOverhead
 	}
 
-	isEmptyFile := true
-
 	bufferSize := sdk.maxBlocksInChunk * int(BlockSize)
 	if sdk.erasureCode != nil { // erasure coding enabled
 		bufferSize = sdk.erasureCode.DataBlocks * int(BlockSize)
@@ -165,27 +163,32 @@ func (sdk *StreamingAPI) Upload(ctx context.Context, upload FileUpload, reader i
 		return FileMeta{}, errSDK.Wrap(err)
 	}
 
-	var i int64
-	for ; ; i++ {
+	var chunkCount int64
+	for {
 		select {
 		case <-ctx.Done():
 			return FileMeta{}, ctx.Err()
 		default:
 		}
 
-		n, err := io.ReadAtLeast(reader, buf, 1)
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				if isEmptyFile {
+		isLastChunk := false
+
+		n, readErr := io.ReadFull(reader, buf)
+		if readErr != nil {
+			if errors.Is(readErr, io.EOF) {
+				if chunkCount == 0 {
 					return FileMeta{}, errSDK.Errorf("empty file")
 				}
 				break
 			}
-			return FileMeta{}, err
-		}
-		isEmptyFile = false
+			if !errors.Is(readErr, io.ErrUnexpectedEOF) {
+				return FileMeta{}, errSDK.Wrap(readErr)
+			}
 
-		chunkUpload, err := sdk.createChunkUpload(ctx, upload, i, fileEncKey, buf[:n])
+			isLastChunk = true
+		}
+
+		chunkUpload, err := sdk.createChunkUpload(ctx, upload, chunkCount, fileEncKey, buf[:n])
 		if err != nil {
 			return FileMeta{}, err
 		}
@@ -197,6 +200,12 @@ func (sdk *StreamingAPI) Upload(ctx context.Context, upload FileUpload, reader i
 		if err := sdk.uploadChunk(ctx, chunkUpload); err != nil {
 			return FileMeta{}, err
 		}
+
+		chunkCount++
+
+		if isLastChunk {
+			break
+		}
 	}
 
 	rootCID, err := dagRoot.Build()
@@ -204,7 +213,7 @@ func (sdk *StreamingAPI) Upload(ctx context.Context, upload FileUpload, reader i
 		return FileMeta{}, errSDK.Wrap(err)
 	}
 
-	fileMeta, err := sdk.commitStream(ctx, upload, rootCID.String(), i)
+	fileMeta, err := sdk.commitStream(ctx, upload, rootCID.String(), chunkCount)
 	if err != nil {
 		return FileMeta{}, err
 	}
@@ -403,7 +412,7 @@ func (sdk *StreamingAPI) createChunkUpload(ctx context.Context, fileUpload FileU
 
 	chunkDAG, err := BuildDAG(ctx, bytes.NewBuffer(data), blockSize, nil)
 	if err != nil {
-		return FileChunkUpload{}, err
+		return FileChunkUpload{}, errSDK.Wrap(err)
 	}
 
 	protoChunk := toProtoChunk(fileUpload.StreamID, chunkDAG.CID.String(), index, size, chunkDAG.Blocks)
