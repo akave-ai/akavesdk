@@ -138,14 +138,32 @@ func (sdk *StreamingAPI) CreateFileUpload(ctx context.Context, bucketName string
 	}, nil
 }
 
-// Upload uploads a file using streaming api.
+// Upload uploads a file using streaming API.
 func (sdk *StreamingAPI) Upload(ctx context.Context, upload FileUpload, reader io.Reader) (_ FileMeta, err error) {
 	defer mon.Task()(&ctx, upload)(&err)
+
+	if err := sdk.validateUploadParams(upload); err != nil {
+		return FileMeta{}, errSDK.Wrap(err)
+	}
+
+	if seeker, ok := reader.(io.Seeker); ok {
+		size, err := seeker.Seek(0, io.SeekEnd)
+		if err != nil {
+			return FileMeta{}, errSDK.Wrap(fmt.Errorf("failed to check file size: %w", err))
+		}
+		if size == 0 {
+			return FileMeta{}, errSDK.New("cannot upload empty file")
+		}
+		_, err = seeker.Seek(0, io.SeekStart)
+		if err != nil {
+			return FileMeta{}, errSDK.Wrap(fmt.Errorf("failed to reset reader: %w", err))
+		}
+	}
 
 	chunkEncOverhead := 0
 	fileEncKey, err := encryptionKey(sdk.encryptionKey, upload.BucketName, upload.Name)
 	if err != nil {
-		return FileMeta{}, errSDK.Wrap(err)
+		return FileMeta{}, errSDK.Wrap(fmt.Errorf("failed to generate encryption key: %w", err))
 	}
 	if len(fileEncKey) > 0 {
 		chunkEncOverhead = EncryptionOverhead
@@ -210,6 +228,24 @@ func (sdk *StreamingAPI) Upload(ctx context.Context, upload FileUpload, reader i
 	}
 
 	return fileMeta, nil
+}
+
+func (sdk *StreamingAPI) validateUploadParams(upload FileUpload) error {
+	if upload.BucketName == "" {
+		return fmt.Errorf("bucket name cannot be empty")
+	}
+	if upload.Name == "" {
+		return fmt.Errorf("file name cannot be empty")
+	}
+	if !isValidFileName(upload.Name) {
+		return fmt.Errorf("invalid file name: %s", upload.Name)
+	}
+	return nil
+}
+
+func isValidFileName(name string) bool {
+
+	return len(name) > 0 && len(name) <= 255
 }
 
 // CreateFileDownload creates a new download request.
@@ -832,7 +868,7 @@ func (sdk *StreamingAPI) fetchBlockData(
 	ctx context.Context,
 	pool *connectionPool,
 	streamID, chunkCID string,
-	chunkIndex, blockIdndex int64,
+	chunkIndex, blockIndex int64,
 	block FileBlockDownload,
 ) ([]byte, error) {
 

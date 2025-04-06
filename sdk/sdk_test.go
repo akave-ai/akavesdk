@@ -54,7 +54,7 @@ func TestCreateSDKClient(t *testing.T) {
 	t.Run("invalid encryption key size", func(t *testing.T) {
 		_, err := sdk.New("", maxConcurrency, blockPartSize.ToInt64(), true, sdk.WithEncryptionKey([]byte("short")))
 		require.Error(t, err)
-		require.Equal(t, "sdk: encyption key length should be 32 bytes long", err.Error())
+		require.Equal(t, "sdk: encryption key length should be 32 bytes long", err.Error())
 	})
 }
 
@@ -198,7 +198,7 @@ func TestUploadDownloadStreamingSmallFiles(t *testing.T) {
 		{"1 MiB", 1 * memory.MiB.ToInt64()},
 	}
 
-	t.Run("no encyption", func(t *testing.T) {
+	t.Run("no encryption", func(t *testing.T) {
 		akave, err := sdk.New(PickNodeRPCAddress(t), maxConcurrency, blockPartSize.ToInt64(), true)
 		require.NoError(t, err)
 		t.Cleanup(func() {
@@ -214,7 +214,7 @@ func TestUploadDownloadStreamingSmallFiles(t *testing.T) {
 		}
 	})
 
-	t.Run("with encyption", func(t *testing.T) {
+	t.Run("with encryption", func(t *testing.T) {
 		akave, err := sdk.New(PickNodeRPCAddress(t), maxConcurrency, blockPartSize.ToInt64(), true, sdk.WithEncryptionKey([]byte(secretKey)))
 		require.NoError(t, err)
 		t.Cleanup(func() {

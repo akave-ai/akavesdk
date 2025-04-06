@@ -10,9 +10,14 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"log"
+	"math/rand"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/spacemonkeygo/monkit/v3"
 	"github.com/spacemonkeygo/monkit/v3/environment"
@@ -138,6 +143,73 @@ func NewCmdParamsError(message string) error {
 	return &CmdParamsError{Message: message}
 }
 
+type RetryConfig struct {
+	MaxAttempts     int
+	InitialInterval time.Duration
+	MaxInterval     time.Duration
+	Multiplier      float64
+	RandomizationFactor float64
+}
+
+var DefaultRetryConfig = RetryConfig{
+	MaxAttempts:         3,
+	InitialInterval:     100 * time.Millisecond,
+	MaxInterval:         10 * time.Second,
+	Multiplier:          2.0,
+	RandomizationFactor: 0.1,
+}
+
+func retryWithBackoff(ctx context.Context, config RetryConfig, operation func() error) error {
+	var lastErr error
+	currentInterval := config.InitialInterval
+
+	for attempt := 1; attempt <= config.MaxAttempts; attempt++ {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		if err := operation(); err != nil {
+			lastErr = err
+			
+			if !isRetriableError(err) {
+				return err
+			}
+
+			if attempt == config.MaxAttempts {
+				break
+			}
+
+			jitter := rand.Float64() * config.RandomizationFactor
+			interval := float64(currentInterval) * (1 + jitter)
+			time.Sleep(time.Duration(interval))
+
+			currentInterval = time.Duration(float64(currentInterval) * config.Multiplier)
+			if currentInterval > config.MaxInterval {
+				currentInterval = config.MaxInterval
+			}
+
+			continue
+		}
+
+		return nil 
+	}
+
+	return fmt.Errorf("operation failed after %d attempts: %w", config.MaxAttempts, lastErr)
+}
+
+func isRetriableError(err error) bool {
+
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	if errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+	return false
+}
+
 func init() {
 	bucketCmd.AddCommand(bucketCreateCmd)
 	bucketCmd.AddCommand(bucketDeleteCmd)
@@ -196,6 +268,24 @@ func initTracing(log *zap.Logger) (*mJaeger.ThriftCollector, func()) {
 }
 
 func main() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigChan
+		cancel()
+	}()
+
+	if err := retryWithBackoff(ctx, DefaultRetryConfig, func() error {
+		return runMain(ctx)
+	}); err != nil {
+		log.Fatalf("Fatal error: %v", err)
+	}
+}
+
+func runMain(ctx context.Context) error {
 	initFlags()
 	environment.Register(monkit.Default)
 	log.SetOutput(os.Stderr)
@@ -205,27 +295,18 @@ func main() {
 
 	logger, err := zap.NewProduction()
 	if err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("failed to initialize logger: %w", err)
 	}
 	defer func() { _ = logger.Sync() }()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	var eg errgroup.Group
-
 	collector, unreg := initTracing(logger)
+	defer unreg()
+
+	eg := errgroup.Group{}
 	eg.Go(func() error {
 		collector.Run(ctx)
 		return nil
 	})
-	defer func() {
-		cancel()
-		unreg()
-
-		err := eg.Wait()
-		if err != nil {
-			rootCmd.PrintErrf("unexpected errgroup wait error: %v", err)
-		}
-	}()
 
 	rootCmd.DisableFlagParsing = true
 	// traverse early to get subcommand.
@@ -233,7 +314,7 @@ func main() {
 	if err != nil {
 		rootCmd.PrintErrf("Error: %v\n", err)
 		_ = rootCmd.Usage()
-		return
+		return nil
 	}
 
 	rootCmd.DisableFlagParsing = false
@@ -242,7 +323,7 @@ func main() {
 	if err != nil {
 		rootCmd.PrintErrf("Error: failed to parse flags: %v\n", err)
 		_ = cmd.Usage()
-		return
+		return nil
 	}
 
 	if err = rootCmd.Execute(); err != nil {
@@ -252,7 +333,10 @@ func main() {
 		if errors.As(err, &paramErr) {
 			_ = cmd.Usage()
 		}
+		return nil
 	}
+
+	return nil
 }
 
 func cmdCreateBucket(cmd *cobra.Command, args []string) (err error) {

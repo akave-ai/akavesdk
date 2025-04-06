@@ -13,6 +13,30 @@ import (
 
 var erasureCodeErr = errs.Tag("erasure coding")
 
+type ErasureCodeError struct {
+	Code    string
+	Message string
+	Err     error
+}
+
+func (e *ErasureCodeError) Error() string {
+	if e.Err != nil {
+		return fmt.Sprintf("[%s] %s: %v", e.Code, e.Message, e.Err)
+	}
+	return fmt.Sprintf("[%s] %s", e.Code, e.Message)
+}
+
+func (e *ErasureCodeError) Unwrap() error {
+	return e.Err
+}
+
+const (
+	ErrInvalidParams    = "EC001"
+	ErrEncodingFailed   = "EC002"
+	ErrDecodingFailed   = "EC003"
+	ErrShardingFailed   = "EC004"
+)
+
 // ErasureCode is a wrapper around the reedsolomon.Encoder type, providing a more user-friendly interface.
 type ErasureCode struct {
 	DataBlocks   int
@@ -21,17 +45,29 @@ type ErasureCode struct {
 	enc reedsolomon.Encoder
 }
 
-// NewErasureCode creates a new ErasureEncode instance with the specified number of data and parity shards.
+// NewErasureCode creates a new ErasureEncode instance with improved error handling
 func NewErasureCode(dataBlocks, parityBlocks int) (*ErasureCode, error) {
 	if dataBlocks <= 0 || parityBlocks <= 0 {
-		return &ErasureCode{}, erasureCodeErr.Wrap(fmt.Errorf("data and parity shards must be > 0"))
+		return nil, &ErasureCodeError{
+			Code:    ErrInvalidParams,
+			Message: "data and parity blocks must be greater than 0",
+		}
 	}
 
 	enc, err := reedsolomon.New(dataBlocks, parityBlocks)
 	if err != nil {
-		return &ErasureCode{}, erasureCodeErr.Wrap(err)
+		return nil, &ErasureCodeError{
+			Code:    ErrEncodingFailed,
+			Message: "failed to create erasure encoder",
+			Err:     err,
+		}
 	}
-	return &ErasureCode{DataBlocks: dataBlocks, ParityBlocks: parityBlocks, enc: enc}, nil
+
+	return &ErasureCode{
+		DataBlocks:   dataBlocks,
+		ParityBlocks: parityBlocks,
+		enc:          enc,
+	}, nil
 }
 
 // Encode encodes the input data using Reed-Solomon erasure coding, returning the encoded data.

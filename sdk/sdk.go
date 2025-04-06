@@ -34,6 +34,14 @@ const (
 
 	minBucketNameLength = 3
 	minFileSize         = 127 // 127 bytes
+
+	MinBlockPartSize     = 1024               // 1KB
+	MaxBlockPartSize     = helpers.BlockSizeLimit
+	MinConcurrency       = 1
+	MaxConcurrency       = 100
+	MinBlocksInChunk     = 2
+	MaxBlocksInChunk     = 64
+	EncryptionKeyLength  = 32
 )
 
 var (
@@ -60,6 +68,50 @@ type SDK struct {
 	encryptionKey             []byte // empty means no encryption
 	streamingMaxBlocksInChunk int
 	parityBlocksCount         int // 0 means no erasure coding applied
+}
+
+type SDKConfig struct {
+	Address                 string
+	MaxConcurrency         int
+	BlockPartSize          int64
+	UseConnectionPool      bool
+	StreamingMaxBlocksInChunk int
+	EncryptionKey          []byte
+	ParityBlocksCount      int
+}
+
+func ValidateConfig(config SDKConfig) error {
+	var errors []string
+
+	if config.Address == "" {
+		errors = append(errors, "address cannot be empty")
+	}
+
+	if config.BlockPartSize < MinBlockPartSize || config.BlockPartSize > MaxBlockPartSize {
+		errors = append(errors, fmt.Sprintf("blockPartSize must be between %d and %d", MinBlockPartSize, MaxBlockPartSize))
+	}
+
+	if config.MaxConcurrency < MinConcurrency || config.MaxConcurrency > MaxConcurrency {
+		errors = append(errors, fmt.Sprintf("maxConcurrency must be between %d and %d", MinConcurrency, MaxConcurrency))
+	}
+
+	if config.StreamingMaxBlocksInChunk < MinBlocksInChunk || config.StreamingMaxBlocksInChunk > MaxBlocksInChunk {
+		errors = append(errors, fmt.Sprintf("streamingMaxBlocksInChunk must be between %d and %d", MinBlocksInChunk, MaxBlocksInChunk))
+	}
+
+	if len(config.EncryptionKey) > 0 && len(config.EncryptionKey) != EncryptionKeyLength {
+		errors = append(errors, fmt.Sprintf("encryption key length must be %d bytes", EncryptionKeyLength))
+	}
+
+	if config.ParityBlocksCount > config.StreamingMaxBlocksInChunk/2 {
+		errors = append(errors, fmt.Sprintf("parity blocks count must be <= %d", config.StreamingMaxBlocksInChunk/2))
+	}
+
+	if len(errors) > 0 {
+		return fmt.Errorf("invalid configuration: %s", strings.Join(errors, "; "))
+	}
+
+	return nil
 }
 
 // WithEncryptionKey sets the encryption key for the SDK.
@@ -90,28 +142,38 @@ func WithErasureCoding(parityBlocks int) func(*SDK) {
 	}
 }
 
-// New returns a new SDK.
+// New returns a new SDK with improved validation
 func New(address string, maxConcurrency int, blockPartSize int64, useConnectionPool bool, options ...Option) (*SDK, error) {
-	if blockPartSize <= 0 || blockPartSize > int64(helpers.BlockSizeLimit) {
-		return nil, fmt.Errorf("invalid blockPartSize: %d. Valid range is 1-%d", blockPartSize, helpers.BlockSizeLimit)
+	config := SDKConfig{
+		Address:            address,
+		MaxConcurrency:    maxConcurrency,
+		BlockPartSize:     blockPartSize,
+		UseConnectionPool: useConnectionPool,
+		StreamingMaxBlocksInChunk: 32,
+	}
+
+	for _, opt := range options {
+		opt(&config)
+	}
+
+	if err := ValidateConfig(config); err != nil {
+		return nil, err
 	}
 
 	conn, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create gRPC client: %w", err)
 	}
 
 	s := &SDK{
 		client:                    pb.NewNodeAPIClient(conn),
 		conn:                      conn,
-		maxConcurrency:            maxConcurrency,
-		blockPartSize:             blockPartSize,
-		useConnectionPool:         useConnectionPool,
-		streamingMaxBlocksInChunk: 32,
-	}
-
-	for _, opt := range options {
-		opt(s)
+		maxConcurrency:            config.MaxConcurrency,
+		blockPartSize:             config.BlockPartSize,
+		useConnectionPool:         config.UseConnectionPool,
+		streamingMaxBlocksInChunk: config.StreamingMaxBlocksInChunk,
+		encryptionKey:            config.EncryptionKey,
+		parityBlocksCount:        config.ParityBlocksCount,
 	}
 
 	if s.streamingMaxBlocksInChunk < 2 {
@@ -120,7 +182,7 @@ func New(address string, maxConcurrency int, blockPartSize int64, useConnectionP
 
 	keyLength := len(s.encryptionKey)
 	if keyLength != 0 && keyLength != 32 {
-		return nil, errSDK.Errorf("encyption key length should be 32 bytes long")
+		return nil, errSDK.Errorf("encryption key length should be 32 bytes long")
 	}
 
 	if s.parityBlocksCount > s.streamingMaxBlocksInChunk/2 {
