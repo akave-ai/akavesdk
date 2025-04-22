@@ -6,7 +6,6 @@ package ipc
 
 import (
 	"context"
-	"crypto/rand"
 	"errors"
 	"math/big"
 	"time"
@@ -297,16 +296,4 @@ func (client *Client) WaitForTx(ctx context.Context, hash common.Hash) error {
 			}
 		}
 	}
-}
-
-// GenerateNonce generates a random 10-digit int64.
-func GenerateNonce() (*big.Int, error) {
-	b := make([]byte, 32)
-
-	_, err := rand.Read(b)
-	if err != nil {
-		return nil, err
-	}
-
-	return big.NewInt(0).SetBytes(b), nil
 }

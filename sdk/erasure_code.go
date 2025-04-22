@@ -5,11 +5,14 @@ package sdk
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 
 	"github.com/klauspost/reedsolomon"
 	"github.com/zeebo/errs/v2"
 )
+
+var magicSuffix = []byte{0xDE, 0xAD, 0xBE, 0xEF}
 
 var erasureCodeErr = errs.Tag("erasure coding")
 
@@ -36,7 +39,7 @@ func NewErasureCode(dataBlocks, parityBlocks int) (*ErasureCode, error) {
 
 // Encode encodes the input data using Reed-Solomon erasure coding, returning the encoded data.
 func (e *ErasureCode) Encode(data []byte) ([]byte, error) {
-	shards, err := e.enc.Split(data)
+	shards, err := e.enc.Split(wrapData(data))
 	if err != nil {
 		return nil, erasureCodeErr.Wrap(err)
 	}
@@ -56,7 +59,7 @@ func (e *ErasureCode) Encode(data []byte) ([]byte, error) {
 }
 
 // ExtractData extracts the original data from the encoded data using Reed-Solomon erasure coding.
-func (e *ErasureCode) ExtractData(blocks [][]byte, originalDataSize int) ([]byte, error) {
+func (e *ErasureCode) ExtractData(blocks [][]byte) ([]byte, error) {
 	ok, _ := e.enc.Verify(blocks)
 	if !ok {
 		if err := e.enc.ReconstructData(blocks); err != nil {
@@ -65,8 +68,38 @@ func (e *ErasureCode) ExtractData(blocks [][]byte, originalDataSize int) ([]byte
 	}
 
 	var buf bytes.Buffer
-	if err := e.enc.Join(&buf, blocks, originalDataSize); err != nil {
+	// at this point, blocks are all reconstructed or valid, so it's safe to take length of 1st
+	if err := e.enc.Join(&buf, blocks, e.DataBlocks*len(blocks[0])); err != nil {
 		return nil, erasureCodeErr.Wrap(err)
 	}
-	return buf.Bytes(), nil
+
+	data, err := unwrapData(buf.Bytes())
+	if err != nil {
+		return nil, erasureCodeErr.Wrap(err)
+	}
+
+	return data, nil
+}
+
+func wrapData(data []byte) []byte {
+	size := uint64(len(data))
+	buf := make([]byte, 8+len(data)+len(magicSuffix))
+	binary.BigEndian.PutUint64(buf[:8], size)
+	copy(buf[8:], data)
+	copy(buf[8+len(data):], magicSuffix)
+	return buf
+}
+
+func unwrapData(buf []byte) ([]byte, error) {
+	if len(buf) < 8+len(magicSuffix) {
+		return nil, fmt.Errorf("buffer too short")
+	}
+	size := binary.BigEndian.Uint64(buf[:8])
+	dataStart := 8
+	dataEnd := dataStart + int(size)
+
+	if !bytes.Equal(buf[dataEnd:dataEnd+len(magicSuffix)], magicSuffix) {
+		return nil, fmt.Errorf("missing suffix or corrupted data")
+	}
+	return buf[dataStart:dataEnd], nil
 }

@@ -9,16 +9,24 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/akave-ai/akavesdk/private/ipctest"
 	"github.com/akave-ai/akavesdk/private/memory"
 	"github.com/akave-ai/akavesdk/private/testrand"
 	"github.com/akave-ai/akavesdk/sdk"
 )
 
 func TestCreateBucketIPC(t *testing.T) {
-	akave, err := sdk.New(PickNodeRPCAddress(t), maxConcurrency, blockPartSize.ToInt64(), true, sdk.WithPrivateKey(PickPrivateKey(t)))
+	privateKey := PickPrivateKey(t)
+	dialURI := PickDialURI(t)
+	pk := ipctest.NewFundedAccount(t, privateKey, dialURI, ipctest.ToWei(10))
+	newPk := hexutil.Encode(crypto.FromECDSA(pk))[2:]
+
+	akave, err := sdk.New(PickNodeRPCAddress(t), maxConcurrency, blockPartSize.ToInt64(), true, sdk.WithPrivateKey(newPk))
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		require.NoError(t, akave.Close())
@@ -35,7 +43,12 @@ func TestCreateBucketIPC(t *testing.T) {
 }
 
 func TestViewBucketIPC(t *testing.T) {
-	akave, err := sdk.New(PickNodeRPCAddress(t), maxConcurrency, blockPartSize.ToInt64(), true, sdk.WithPrivateKey(PickPrivateKey(t)))
+	privateKey := PickPrivateKey(t)
+	dialURI := PickDialURI(t)
+	pk := ipctest.NewFundedAccount(t, privateKey, dialURI, ipctest.ToWei(10))
+	newPk := hexutil.Encode(crypto.FromECDSA(pk))[2:]
+
+	akave, err := sdk.New(PickNodeRPCAddress(t), maxConcurrency, blockPartSize.ToInt64(), true, sdk.WithPrivateKey(newPk))
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		require.NoError(t, akave.Close())
@@ -57,7 +70,12 @@ func TestViewBucketIPC(t *testing.T) {
 }
 
 func TestListBucketsIPC(t *testing.T) {
-	akave, err := sdk.New(PickNodeRPCAddress(t), maxConcurrency, blockPartSize.ToInt64(), true, sdk.WithPrivateKey(PickPrivateKey(t)))
+	privateKey := PickPrivateKey(t)
+	dialURI := PickDialURI(t)
+	pk := ipctest.NewFundedAccount(t, privateKey, dialURI, ipctest.ToWei(10))
+	newPk := hexutil.Encode(crypto.FromECDSA(pk))[2:]
+
+	akave, err := sdk.New(PickNodeRPCAddress(t), maxConcurrency, blockPartSize.ToInt64(), true, sdk.WithPrivateKey(newPk))
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		require.NoError(t, akave.Close())
@@ -83,7 +101,12 @@ func TestListBucketsIPC(t *testing.T) {
 }
 
 func TestDeleteBucketIPC(t *testing.T) {
-	akave, err := sdk.New(PickNodeRPCAddress(t), maxConcurrency, blockPartSize.ToInt64(), true, sdk.WithPrivateKey(PickPrivateKey(t)))
+	privateKey := PickPrivateKey(t)
+	dialURI := PickDialURI(t)
+	pk := ipctest.NewFundedAccount(t, privateKey, dialURI, ipctest.ToWei(10))
+	newPk := hexutil.Encode(crypto.FromECDSA(pk))[2:]
+
+	akave, err := sdk.New(PickNodeRPCAddress(t), maxConcurrency, blockPartSize.ToInt64(), true, sdk.WithPrivateKey(newPk))
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		require.NoError(t, akave.Close())
@@ -105,7 +128,12 @@ func TestDeleteBucketIPC(t *testing.T) {
 }
 
 func TestFileInfo(t *testing.T) {
-	akave, err := sdk.New(PickNodeRPCAddress(t), maxConcurrency, blockPartSize.ToInt64(), true, sdk.WithPrivateKey(PickPrivateKey(t)))
+	privateKey := PickPrivateKey(t)
+	dialURI := PickDialURI(t)
+	pk := ipctest.NewFundedAccount(t, privateKey, dialURI, ipctest.ToWei(10))
+	newPk := hexutil.Encode(crypto.FromECDSA(pk))[2:]
+
+	akave, err := sdk.New(PickNodeRPCAddress(t), maxConcurrency, blockPartSize.ToInt64(), true, sdk.WithPrivateKey(newPk))
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		require.NoError(t, akave.Close())
@@ -140,7 +168,12 @@ func TestFileInfo(t *testing.T) {
 }
 
 func TestListFiles(t *testing.T) {
-	akave, err := sdk.New(PickNodeRPCAddress(t), maxConcurrency, blockPartSize.ToInt64(), true, sdk.WithPrivateKey(PickPrivateKey(t)))
+	privateKey := PickPrivateKey(t)
+	dialURI := PickDialURI(t)
+	pk := ipctest.NewFundedAccount(t, privateKey, dialURI, ipctest.ToWei(10))
+	newPk := hexutil.Encode(crypto.FromECDSA(pk))[2:]
+
+	akave, err := sdk.New(PickNodeRPCAddress(t), maxConcurrency, blockPartSize.ToInt64(), true, sdk.WithPrivateKey(newPk))
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		require.NoError(t, akave.Close())
@@ -173,7 +206,12 @@ func TestListFiles(t *testing.T) {
 }
 
 func TestFileDeleteIPC(t *testing.T) {
-	akave, err := sdk.New(PickNodeRPCAddress(t), maxConcurrency, blockPartSize.ToInt64(), true, sdk.WithPrivateKey(PickPrivateKey(t)))
+	privateKey := PickPrivateKey(t)
+	dialURI := PickDialURI(t)
+	pk := ipctest.NewFundedAccount(t, privateKey, dialURI, ipctest.ToWei(10))
+	newPk := hexutil.Encode(crypto.FromECDSA(pk))[2:]
+
+	akave, err := sdk.New(PickNodeRPCAddress(t), maxConcurrency, blockPartSize.ToInt64(), true, sdk.WithPrivateKey(newPk))
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		require.NoError(t, akave.Close())
@@ -205,7 +243,12 @@ func TestFileDeleteIPC(t *testing.T) {
 }
 
 func TestFileSetPublicAccess(t *testing.T) {
-	akave, err := sdk.New(PickNodeRPCAddress(t), maxConcurrency, blockPartSize.ToInt64(), true, sdk.WithPrivateKey(PickPrivateKey(t)))
+	privateKey := PickPrivateKey(t)
+	dialURI := PickDialURI(t)
+	pk := ipctest.NewFundedAccount(t, privateKey, dialURI, ipctest.ToWei(10))
+	newPk := hexutil.Encode(crypto.FromECDSA(pk))[2:]
+
+	akave, err := sdk.New(PickNodeRPCAddress(t), maxConcurrency, blockPartSize.ToInt64(), true, sdk.WithPrivateKey(newPk))
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		require.NoError(t, akave.Close())
@@ -251,26 +294,109 @@ func TestUploadDownloadIPC(t *testing.T) {
 		{"5 MB", 5},
 		{"15 MB", 15},
 		{"35 MB", 35},
+		{"256 MB", 256},
 	}
 
-	akave, err := sdk.New(PickNodeRPCAddress(t), maxConcurrency, blockPartSize.ToInt64(), true, sdk.WithPrivateKey(PickPrivateKey(t)))
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		require.NoError(t, akave.Close())
+	privateKey := PickPrivateKey(t)
+	dialURI := PickDialURI(t)
+	pk := ipctest.NewFundedAccount(t, privateKey, dialURI, ipctest.ToWei(10))
+	newPk := hexutil.Encode(crypto.FromECDSA(pk))[2:]
+
+	t.Run("without encryption", func(t *testing.T) {
+		akave, err := sdk.New(PickNodeRPCAddress(t), maxConcurrency, blockPartSize.ToInt64(), true, sdk.WithPrivateKey(newPk))
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			require.NoError(t, akave.Close())
+		})
+
+		ipc, err := akave.IPC()
+		require.NoError(t, err)
+
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				data := testrand.Bytes(t, tc.fileSize*memory.MB.ToInt64())
+				testUploadDownloadIPC(t, ipc, data, false)
+			})
+		}
 	})
 
-	ipc, err := akave.IPC()
-	require.NoError(t, err)
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			data := testrand.Bytes(t, tc.fileSize*memory.MB.ToInt64())
-			testUploadDownloadIPC(t, ipc, data)
+	t.Run("with encryption", func(t *testing.T) {
+		akave, err := sdk.New(PickNodeRPCAddress(t), maxConcurrency, blockPartSize.ToInt64(), true, sdk.WithPrivateKey(newPk),
+			sdk.WithEncryptionKey([]byte(secretKey)))
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			require.NoError(t, akave.Close())
 		})
-	}
+
+		ipc, err := akave.IPC()
+		require.NoError(t, err)
+
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				data := testrand.BytesD(t, 2024, tc.fileSize*memory.MB.ToInt64())
+				testUploadDownloadIPC(t, ipc, data, false)
+			})
+		}
+	})
 }
 
-func testUploadDownloadIPC(t *testing.T, ipc *sdk.IPC, data []byte) {
+func TestUploadDownloadWithErasureCodeIPC(t *testing.T) {
+	tests := []struct {
+		name     string
+		fileSize int64 // Size in MB
+	}{
+		{"1 MB", 1},
+		{"5 MB", 5},
+		{"15 MB", 15},
+		{"35 MB", 35},
+		{"256 MB", 256},
+	}
+
+	privateKey := PickPrivateKey(t)
+	dialURI := PickDialURI(t)
+	pk := ipctest.NewFundedAccount(t, privateKey, dialURI, ipctest.ToWei(10))
+	newPk := hexutil.Encode(crypto.FromECDSA(pk))[2:]
+
+	t.Run("without encryption", func(t *testing.T) {
+		akave, err := sdk.New(PickNodeRPCAddress(t), maxConcurrency, blockPartSize.ToInt64(), true, sdk.WithPrivateKey(newPk),
+			sdk.WithErasureCoding(16))
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			require.NoError(t, akave.Close())
+		})
+
+		ipc, err := akave.IPC()
+		require.NoError(t, err)
+
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				data := testrand.Bytes(t, tc.fileSize*memory.MB.ToInt64())
+				testUploadDownloadIPC(t, ipc, data, true)
+			})
+		}
+	})
+
+	t.Run("with encryption", func(t *testing.T) {
+		akave, err := sdk.New(PickNodeRPCAddress(t), maxConcurrency, blockPartSize.ToInt64(), true, sdk.WithPrivateKey(newPk),
+			sdk.WithErasureCoding(16), sdk.WithEncryptionKey([]byte(secretKey)))
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			require.NoError(t, akave.Close())
+		})
+
+		ipc, err := akave.IPC()
+		require.NoError(t, err)
+
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				data := testrand.Bytes(t, tc.fileSize*memory.MB.ToInt64())
+				testUploadDownloadIPC(t, ipc, data, true)
+			})
+		}
+	})
+}
+
+func testUploadDownloadIPC(t *testing.T, ipc *sdk.IPC, data []byte, erasureCoding bool) {
 	file := bytes.NewBuffer(data)
 
 	bucketName := randomBucketName(t, 10)
@@ -288,7 +414,7 @@ func testUploadDownloadIPC(t *testing.T, ipc *sdk.IPC, data []byte) {
 	t.Logf("Create file upload duration: %v", fileUploadDuration)
 
 	now = time.Now()
-	_, err = ipc.Upload(ctx, bucketName, fileName, file)
+	u, err := ipc.Upload(ctx, bucketName, fileName, file)
 	require.NoError(t, err)
 	t.Logf("Upload duration: %v", time.Since(now))
 
@@ -296,6 +422,9 @@ func testUploadDownloadIPC(t *testing.T, ipc *sdk.IPC, data []byte) {
 	fileDownload, err := ipc.CreateFileDownload(ctx, bucketName, fileName)
 	require.NoError(t, err)
 	assert.True(t, len(fileDownload.Chunks) > 0)
+	if erasureCoding {
+		require.Equal(t, ceilDiv(u.EncodedSize, 32*memory.MB.ToInt64()), int64(len(fileDownload.Chunks)))
+	}
 
 	now = time.Now()
 	require.NoError(t, ipc.Download(ctx, fileDownload, &downloaded))
@@ -304,35 +433,6 @@ func testUploadDownloadIPC(t *testing.T, ipc *sdk.IPC, data []byte) {
 	checkFileContents(t, 10, data, downloaded.Bytes())
 }
 
-func TestUploadDownloadIPCWithEncryption(t *testing.T) {
-	tests := []struct {
-		name     string
-		fileSize int64 // Size in MB
-	}{
-		{"1 MB", 1},
-		{"5 MB", 5},
-		{"15 MB", 15},
-		{"35 MB", 35},
-		{"256 MB", 256},
-	}
-
-	akave, err := sdk.New(PickNodeRPCAddress(t), maxConcurrency, blockPartSize.ToInt64(), true,
-		sdk.WithPrivateKey(PickPrivateKey(t)),
-		sdk.WithEncryptionKey([]byte(secretKey)),
-		sdk.WithMetadataEncryption(),
-	)
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		require.NoError(t, akave.Close())
-	})
-
-	ipc, err := akave.IPC()
-	require.NoError(t, err)
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			data := testrand.Bytes(t, tc.fileSize*memory.MB.ToInt64())
-			testUploadDownloadIPC(t, ipc, data)
-		})
-	}
+func ceilDiv(a, b int64) int64 {
+	return (a + b - 1) / b
 }

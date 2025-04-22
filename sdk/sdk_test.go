@@ -786,6 +786,8 @@ var (
 	NodeRPCAddress = flag.String("node-rpc-address", os.Getenv("NODE_RPC_ADDRESS"), "flag to set node rpc address")
 	// PrivateKey is flag set to private key.
 	PrivateKey = flag.String("sdk-private-key", os.Getenv("PRIVATE_KEY"), "flag to set private key")
+	// DialURI is flag set to ipc dial uri.
+	DialURI = flag.String("sdk-dial-uri", os.Getenv("DIAL_URI"), "flag to set dial URI")
 )
 
 // PickNodeRPCAddress picks node PRC address from flag.
@@ -802,6 +804,14 @@ func PickPrivateKey(t testing.TB) string {
 		t.Skip("private key flag missing, example: -PRIVATE_KEY=<deployers hex private key>")
 	}
 	return *PrivateKey
+}
+
+// PickDialURI picks ipc dial uri.
+func PickDialURI(t testing.TB) string {
+	if *DialURI == "" || strings.EqualFold(*DialURI, "omit") {
+		t.Skip("private key flag missing, example: -DIAL_URI=<deployers hex private key>")
+	}
+	return *DialURI
 }
 
 // checks lengths, first and last N bytes.

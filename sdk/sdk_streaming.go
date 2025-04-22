@@ -33,6 +33,7 @@ type StreamingAPI struct {
 	useConnectionPool bool
 	encryptionKey     []byte // empty means no encryption
 	maxBlocksInChunk  int
+	chunkBuffer       int // number of chunks to buffer during streaming operations
 }
 
 // FileInfo returns meta information for single file by bucket and file name.
@@ -156,56 +157,83 @@ func (sdk *StreamingAPI) Upload(ctx context.Context, upload FileUpload, reader i
 		bufferSize = sdk.erasureCode.DataBlocks * int(BlockSize)
 	}
 	bufferSize -= chunkEncOverhead
-	buf := make([]byte, bufferSize)
 
 	dagRoot, err := NewDAGRoot()
 	if err != nil {
 		return FileMeta{}, errSDK.Wrap(err)
 	}
 
+	g, chunkCtx := errgroup.WithContext(ctx)
+	fileUploadChunksCh := make(chan FileChunkUpload, sdk.chunkBuffer)
+
+	// Start goroutine for reading data and creating chunks
+	g.Go(func() error {
+		defer close(fileUploadChunksCh)
+
+		buf := make([]byte, bufferSize)
+		var index int64
+
+		for {
+			n, readErr := io.ReadFull(reader, buf)
+			if readErr != nil {
+				if errors.Is(readErr, io.EOF) {
+					if index == 0 {
+						return fmt.Errorf("empty file")
+					}
+					return nil
+				}
+				if !errors.Is(readErr, io.ErrUnexpectedEOF) {
+					return readErr
+				}
+			}
+
+			if n > 0 {
+				chunkUpload, err := sdk.createChunkUpload(chunkCtx, upload, index, fileEncKey, buf[:n])
+				if err != nil {
+					return err
+				}
+
+				select {
+				case <-chunkCtx.Done():
+					return chunkCtx.Err()
+				case fileUploadChunksCh <- chunkUpload:
+					index++
+				}
+			}
+
+			// If this was the last chunk (ErrUnexpectedEOF), we're done
+			if errors.Is(readErr, io.ErrUnexpectedEOF) {
+				return nil
+			}
+		}
+	})
+
 	var chunkCount int64
+
+uploadLoop:
 	for {
 		select {
-		case <-ctx.Done():
-			return FileMeta{}, ctx.Err()
-		default:
-		}
-
-		isLastChunk := false
-
-		n, readErr := io.ReadFull(reader, buf)
-		if readErr != nil {
-			if errors.Is(readErr, io.EOF) {
-				if chunkCount == 0 {
-					return FileMeta{}, errSDK.Errorf("empty file")
-				}
-				break
-			}
-			if !errors.Is(readErr, io.ErrUnexpectedEOF) {
-				return FileMeta{}, errSDK.Wrap(readErr)
+		case <-chunkCtx.Done():
+			break uploadLoop
+		case chunkUpload, ok := <-fileUploadChunksCh:
+			if !ok {
+				break uploadLoop
 			}
 
-			isLastChunk = true
-		}
+			if err := dagRoot.AddLink(chunkUpload.ChunkCID, chunkUpload.RawDataSize, chunkUpload.ProtoNodeSize); err != nil {
+				return FileMeta{}, errSDK.Wrap(err)
+			}
 
-		chunkUpload, err := sdk.createChunkUpload(ctx, upload, chunkCount, fileEncKey, buf[:n])
-		if err != nil {
-			return FileMeta{}, err
-		}
+			if err := sdk.uploadChunk(chunkCtx, chunkUpload); err != nil {
+				return FileMeta{}, errSDK.Wrap(err)
+			}
 
-		if err := dagRoot.AddLink(chunkUpload.ChunkCID, chunkUpload.RawDataSize, chunkUpload.ProtoNodeSize); err != nil {
-			return FileMeta{}, errSDK.Wrap(err)
+			chunkCount++
 		}
+	}
 
-		if err := sdk.uploadChunk(ctx, chunkUpload); err != nil {
-			return FileMeta{}, err
-		}
-
-		chunkCount++
-
-		if isLastChunk {
-			break
-		}
+	if err := g.Wait(); err != nil {
+		return FileMeta{}, errSDK.Wrap(err)
 	}
 
 	rootCID, err := dagRoot.Build()
@@ -213,9 +241,10 @@ func (sdk *StreamingAPI) Upload(ctx context.Context, upload FileUpload, reader i
 		return FileMeta{}, errSDK.Wrap(err)
 	}
 
+	// chunkCtx is already cancelled at this point, so parent ctx is used
 	fileMeta, err := sdk.commitStream(ctx, upload, rootCID.String(), chunkCount)
 	if err != nil {
-		return FileMeta{}, err
+		return FileMeta{}, errSDK.Wrap(err)
 	}
 
 	return fileMeta, nil
@@ -657,7 +686,7 @@ func (sdk *StreamingAPI) downloadChunkBlocks(
 
 	var data []byte
 	if sdk.erasureCode != nil { // erasure coding is enabled
-		data, err = sdk.erasureCode.ExtractData(blocks, int(chunkDownload.Size))
+		data, err = sdk.erasureCode.ExtractData(blocks)
 		if err != nil {
 			return errSDK.Wrap(err)
 		}
@@ -756,7 +785,7 @@ func (sdk *StreamingAPI) downloadRandomChunkBlocks(
 
 	var data []byte
 	if sdk.erasureCode != nil { // erasure coding is enabled
-		data, err = sdk.erasureCode.ExtractData(blocks, int(chunkDownload.Size))
+		data, err = sdk.erasureCode.ExtractData(blocks)
 		if err != nil {
 			return errSDK.Wrap(err)
 		}
@@ -765,7 +794,7 @@ func (sdk *StreamingAPI) downloadRandomChunkBlocks(
 	}
 
 	if len(fileEncryptionKey) > 0 {
-		data, err = encryption.Decrypt(fileEncryptionKey, data, []byte(fmt.Sprintf("%d", chunkDownload.Index)))
+		data, err = encryption.Decrypt(fileEncryptionKey, data, fmt.Appendf(nil, "%d", chunkDownload.Index))
 		if err != nil {
 			return errSDK.Wrap(err)
 		}

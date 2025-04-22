@@ -4,7 +4,7 @@ The **Akave SDK CLI** (`akavesdk`) is a command-line tool designed to streamline
 
 Whether you're building a new integration or managing data across nodes, this SDK provides robust capabilities to help you achieve seamless, scalable storage solutions.
 
-```Base commit: tag v0.1.1```.
+```Base commit: tag v0.1.2```.
 Some access policy-related changes were removed.
 
 ## Build and test instructions

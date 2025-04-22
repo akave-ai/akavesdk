@@ -45,6 +45,8 @@ type IPC struct {
 	encryptionKey         []byte // empty means no encryption
 	maxBlocksInChunk      int
 	useMetadataEncryption bool
+	// chunkBuffer controls the size of the buffer for chunk uploads.
+	chunkBuffer int
 }
 
 // CreateBucket creates a new bucket.
@@ -346,57 +348,85 @@ func (sdk *IPC) Upload(ctx context.Context, bucketName, fileName string, reader 
 		bufferSize = sdk.erasureCode.DataBlocks * int(BlockSize)
 	}
 	bufferSize -= chunkEncOverhead
-	buf := make([]byte, bufferSize)
 
 	dagRoot, err := NewDAGRoot()
 	if err != nil {
 		return IPCFileMetaV2{}, errSDK.Wrap(err)
 	}
 
-	var chunkCount, fileSize int64
+	g, chunkCtx := errgroup.WithContext(ctx)
+	fileUploadChunksCh := make(chan IPCFileChunkUploadV2, sdk.chunkBuffer)
+
+	// Start goroutine for reading data and creating chunks
+	g.Go(func() error {
+		defer close(fileUploadChunksCh)
+
+		buf := make([]byte, bufferSize)
+		var index int64
+
+		for {
+			n, readErr := io.ReadFull(reader, buf)
+			if readErr != nil {
+				if errors.Is(readErr, io.EOF) {
+					if index == 0 {
+						return fmt.Errorf("empty file")
+					}
+					return nil
+				}
+				if !errors.Is(readErr, io.ErrUnexpectedEOF) {
+					return readErr
+				}
+			}
+
+			if n > 0 {
+				chunkUpload, err := sdk.createChunkUpload(chunkCtx, index, fileEncKey, buf[:n], bucket.Id, fileName)
+				if err != nil {
+					return err
+				}
+
+				select {
+				case <-chunkCtx.Done():
+					return chunkCtx.Err()
+				case fileUploadChunksCh <- chunkUpload:
+					index++
+				}
+			}
+
+			// If this was the last chunk (ErrUnexpectedEOF), we're done
+			if errors.Is(readErr, io.ErrUnexpectedEOF) {
+				return nil
+			}
+		}
+	})
+
+	var fileSize int64
+	var chunkCount int64
+
+uploadLoop:
 	for {
 		select {
-		case <-ctx.Done():
-			return IPCFileMetaV2{}, ctx.Err()
-		default:
-		}
-
-		isLastChunk := false
-
-		n, readErr := io.ReadFull(reader, buf)
-		if readErr != nil {
-			if errors.Is(readErr, io.EOF) {
-				if chunkCount == 0 {
-					return IPCFileMetaV2{}, errSDK.Errorf("empty file")
-				}
-				break
-			}
-			if !errors.Is(readErr, io.ErrUnexpectedEOF) {
-				return IPCFileMetaV2{}, errSDK.Wrap(readErr)
+		case <-chunkCtx.Done():
+			break uploadLoop
+		case chunkUpload, ok := <-fileUploadChunksCh:
+			if !ok {
+				break uploadLoop
 			}
 
-			isLastChunk = true
-		}
+			if err := dagRoot.AddLink(chunkUpload.ChunkCID, chunkUpload.RawDataSize, chunkUpload.ProtoNodeSize); err != nil {
+				return IPCFileMetaV2{}, errSDK.Wrap(err)
+			}
 
-		chunkUpload, err := sdk.createChunkUpload(ctx, chunkCount, fileEncKey, buf[:n], bucket.Id, fileName)
-		if err != nil {
-			return IPCFileMetaV2{}, err
-		}
-		fileSize += chunkUpload.ActualSize
+			if err := sdk.uploadChunk(chunkCtx, chunkUpload); err != nil {
+				return IPCFileMetaV2{}, errSDK.Wrap(err)
+			}
 
-		if err := dagRoot.AddLink(chunkUpload.ChunkCID, chunkUpload.RawDataSize, chunkUpload.ProtoNodeSize); err != nil {
-			return IPCFileMetaV2{}, errSDK.Wrap(err)
+			fileSize += int64(chunkUpload.ProtoNodeSize)
+			chunkCount++
 		}
+	}
 
-		if err := sdk.uploadChunk(ctx, chunkUpload); err != nil {
-			return IPCFileMetaV2{}, err
-		}
-
-		chunkCount++
-
-		if isLastChunk {
-			break
-		}
+	if err := g.Wait(); err != nil {
+		return IPCFileMetaV2{}, errSDK.Wrap(err)
 	}
 
 	rootCID, err := dagRoot.Build()
@@ -409,17 +439,16 @@ func (sdk *IPC) Upload(ctx context.Context, bucketName, fileName string, reader 
 		return IPCFileMetaV2{}, errSDK.Wrap(ipc.ErrorHashToError(err))
 	}
 
-	fileID := calculateFileID(bucket.Id[:], fileName)
+	fileID := ipc.CalculateFileID(bucket.Id[:], fileName)
 
 	var isFilled bool
-
 	for !isFilled {
 		isFilled, err = sdk.ipc.Storage.IsFileFilled(&bind.CallOpts{}, fileID)
 		if err != nil {
 			return IPCFileMetaV2{}, errSDK.Wrap(ipc.ErrorHashToError(err))
 		}
 
-		time.Sleep(time.Second)
+		time.Sleep(time.Second) // TODO: make configurable
 	}
 
 	tx, err := sdk.ipc.Storage.CommitFile(sdk.ipc.Auth, bucket.Id, fileName, new(big.Int).SetInt64(fileSize), rootCID.Bytes())
@@ -433,7 +462,7 @@ func (sdk *IPC) Upload(ctx context.Context, bucketName, fileName string, reader 
 		Name:        fileName,
 		EncodedSize: fileSize,
 		CreatedAt:   time.Unix(fileMeta.CreatedAt.Int64(), 0),
-		CommittedAt: time.Now(),
+		CommittedAt: time.Now(), // TODO: is it ok to rely on time zone settings of the client?
 	}, errSDK.Wrap(sdk.ipc.WaitForTx(ctx, tx.Hash()))
 }
 
@@ -490,7 +519,7 @@ func (sdk *IPC) createChunkUpload(ctx context.Context, index int64, fileEncrypti
 		chunkDAG.Blocks[i].Permit = upload.Permit
 	}
 
-	tx, err := sdk.ipc.Storage.AddFileChunk(sdk.ipc.Auth, chunkDAG.CID.Bytes(), bucketID, fileName, new(big.Int).SetInt64(size),
+	tx, err := sdk.ipc.Storage.AddFileChunk(sdk.ipc.Auth, chunkDAG.CID.Bytes(), bucketID, fileName, new(big.Int).SetInt64(int64(chunkDAG.ProtoNodeSize)),
 		cids, sizes, new(big.Int).SetInt64(index))
 	if err != nil {
 		return IPCFileChunkUploadV2{}, errSDK.Wrap(ipc.ErrorHashToError(err))
@@ -892,7 +921,7 @@ func (sdk *IPC) downloadChunkBlocks(
 
 	var data []byte
 	if sdk.erasureCode != nil { // erasure coding is enabled
-		data, err = sdk.erasureCode.ExtractData(blocks, int(chunkDownload.Size))
+		data, err = sdk.erasureCode.ExtractData(blocks)
 		if err != nil {
 			return errSDK.Wrap(err)
 		}
@@ -901,7 +930,7 @@ func (sdk *IPC) downloadChunkBlocks(
 	}
 
 	if len(fileEncryptionKey) > 0 {
-		data, err = encryption.Decrypt(fileEncryptionKey, data, []byte(fmt.Sprintf("%d", chunkDownload.Index)))
+		data, err = encryption.Decrypt(fileEncryptionKey, data, fmt.Appendf(nil, "%d", chunkDownload.Index))
 		if err != nil {
 			return errSDK.Wrap(err)
 		}
@@ -966,7 +995,7 @@ func (sdk *IPC) fetchBlockData(
 	return buf.Bytes(), nil
 }
 
-// Encrypts the given metadata if metadata encyption is enabled and encryption key is set.
+// Encrypts the given metadata if metadata encryption is enabled and encryption key is set.
 func (sdk *IPC) maybeEncryptMetadata(value, derivationPath string) (string, error) {
 	if len(sdk.encryptionKey) > 0 && sdk.useMetadataEncryption {
 		encrypted, err := encryption.EncryptD(sdk.encryptionKey, []byte(value), []byte(derivationPath))
@@ -1006,12 +1035,4 @@ func toIPCProtoChunk(chunkCid string, index, size int64, blocks []FileBlockUploa
 		Size:   size,
 		Blocks: pbBlocks,
 	}, nil
-}
-
-func calculateFileID(bucketID []byte, name string) common.Hash {
-	var b []byte
-	b = append(b, bucketID...)
-	b = append(b, name...)
-
-	return crypto.Keccak256Hash(b)
 }

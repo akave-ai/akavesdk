@@ -61,6 +61,7 @@ type SDK struct {
 	streamingMaxBlocksInChunk int
 	parityBlocksCount         int  // 0 means no erasure coding applied
 	useMetadataEncryption     bool // encrypts bucket and file names if true
+	chunkBuffer               int
 }
 
 // WithMetadataEncryption sets the metadata encryption for the SDK.
@@ -98,6 +99,13 @@ func WithErasureCoding(parityBlocks int) func(*SDK) {
 	}
 }
 
+// WithChunkBuffer sets the chunk buffer size for streaming operations.
+func WithChunkBuffer(bufferSize int) func(*SDK) {
+	return func(s *SDK) {
+		s.chunkBuffer = bufferSize
+	}
+}
+
 // New returns a new SDK.
 func New(address string, maxConcurrency int, blockPartSize int64, useConnectionPool bool, options ...Option) (*SDK, error) {
 	if blockPartSize <= 0 || blockPartSize > int64(helpers.BlockSizeLimit) {
@@ -116,6 +124,7 @@ func New(address string, maxConcurrency int, blockPartSize int64, useConnectionP
 		blockPartSize:             blockPartSize,
 		useConnectionPool:         useConnectionPool,
 		streamingMaxBlocksInChunk: 32,
+		chunkBuffer:               0, // Default value for chunk buffer
 	}
 
 	for _, opt := range options {
@@ -165,6 +174,7 @@ func (sdk *SDK) StreamingAPI() *StreamingAPI {
 		useConnectionPool: sdk.useConnectionPool,
 		encryptionKey:     sdk.encryptionKey,
 		maxBlocksInChunk:  sdk.streamingMaxBlocksInChunk,
+		chunkBuffer:       sdk.chunkBuffer,
 	}
 }
 
@@ -193,6 +203,7 @@ func (sdk *SDK) IPC() (*IPC, error) {
 		chainID:               ipcClient.ChainID(),
 		storageAddress:        connParams.StorageAddress,
 		conn:                  sdk.conn,
+		erasureCode:           sdk.streamingErasureCode,
 		privateKey:            sdk.privateKey,
 		maxConcurrency:        sdk.maxConcurrency,
 		blockPartSize:         sdk.blockPartSize,
@@ -200,6 +211,7 @@ func (sdk *SDK) IPC() (*IPC, error) {
 		encryptionKey:         sdk.encryptionKey,
 		maxBlocksInChunk:      sdk.streamingMaxBlocksInChunk,
 		useMetadataEncryption: sdk.useMetadataEncryption,
+		chunkBuffer:           sdk.chunkBuffer,
 	}, nil
 }
 

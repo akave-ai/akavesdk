@@ -39,7 +39,7 @@ func TestErasureCode(t *testing.T) {
 	t.Run("no missing shards", func(t *testing.T) {
 		blocks := splitIntoBlocks(encoded, shardSize)
 
-		extracted, err := encoder.ExtractData(blocks, len(data))
+		extracted, err := encoder.ExtractData(blocks)
 		require.NoError(t, err)
 		assert.Equal(t, data, extracted)
 	})
@@ -64,7 +64,7 @@ func TestErasureCode(t *testing.T) {
 				blocks[idx] = nil
 			}
 
-			extracted, err := encoder.ExtractData(blocks, len(data))
+			extracted, err := encoder.ExtractData(blocks)
 			require.NoError(t, err)
 			assert.Equal(t, data, extracted)
 		}
@@ -75,7 +75,7 @@ func TestErasureCode(t *testing.T) {
 		for i := range parityShards + 1 {
 			blocks[i] = nil
 		}
-		_, err := encoder.ExtractData(blocks, len(data))
+		_, err := encoder.ExtractData(blocks)
 		require.Error(t, err)
 	})
 }
