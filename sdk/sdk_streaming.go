@@ -686,7 +686,7 @@ func (sdk *StreamingAPI) downloadChunkBlocks(
 
 	var data []byte
 	if sdk.erasureCode != nil { // erasure coding is enabled
-		data, err = sdk.erasureCode.ExtractData(blocks)
+		data, err = sdk.erasureCode.ExtractData(blocks, int(chunkDownload.Size))
 		if err != nil {
 			return errSDK.Wrap(err)
 		}
@@ -785,7 +785,7 @@ func (sdk *StreamingAPI) downloadRandomChunkBlocks(
 
 	var data []byte
 	if sdk.erasureCode != nil { // erasure coding is enabled
-		data, err = sdk.erasureCode.ExtractData(blocks)
+		data, err = sdk.erasureCode.ExtractData(blocks, int(chunkDownload.Size))
 		if err != nil {
 			return errSDK.Wrap(err)
 		}
@@ -794,7 +794,7 @@ func (sdk *StreamingAPI) downloadRandomChunkBlocks(
 	}
 
 	if len(fileEncryptionKey) > 0 {
-		data, err = encryption.Decrypt(fileEncryptionKey, data, fmt.Appendf(nil, "%d", chunkDownload.Index))
+		data, err = encryption.Decrypt(fileEncryptionKey, data, []byte(fmt.Sprintf("%d", chunkDownload.Index)))
 		if err != nil {
 			return errSDK.Wrap(err)
 		}

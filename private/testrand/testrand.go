@@ -5,10 +5,16 @@
 package testrand
 
 import (
+	"bytes"
 	"crypto/rand"
+	"crypto/sha256"
 	"math/big"
 	rand2 "math/rand"
 	"testing"
+
+	libp2pCrypto "github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/stretchr/testify/require"
 )
 
 // Bytes returns a slice of random bytes of the given size.
@@ -56,4 +62,15 @@ func GenerateRandomNonce(t testing.TB) *big.Int {
 	}
 
 	return big.NewInt(0).SetBytes(b)
+}
+
+// GenPeerID generates a peer.ID from a seed string deterministically.
+func GenPeerID(t testing.TB, seed string) peer.ID {
+	t.Helper()
+	hash := sha256.Sum256([]byte(seed))
+	privateKey, _, err := libp2pCrypto.GenerateEd25519Key(bytes.NewReader(hash[:]))
+	require.NoError(t, err)
+	peerId, err := peer.IDFromPrivateKey(privateKey)
+	require.NoError(t, err)
+	return peerId
 }

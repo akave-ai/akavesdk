@@ -6,6 +6,7 @@ package sdk
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -28,6 +29,9 @@ import (
 	"github.com/akave-ai/akavesdk/private/ipc"
 	"github.com/akave-ai/akavesdk/private/pb"
 )
+
+// MagicSuffix used to indicate that trim zeroes wouldn't harm actual data after erasure coding.
+var MagicSuffix = []byte{0xDE, 0xAD, 0xBE, 0xEF}
 
 // IPC exposes SDK ipc API.
 type IPC struct {
@@ -202,6 +206,7 @@ func (sdk *IPC) FileInfo(ctx context.Context, bucketName, fileName string) (_ IP
 		BucketName:  res.GetBucketName(),
 		IsPublic:    res.GetIsPublic(),
 		EncodedSize: res.GetEncodedSize(),
+		ActualSize:  res.GetActualSize(),
 		CreatedAt:   res.CreatedAt.AsTime(),
 	}, nil
 }
@@ -233,6 +238,7 @@ func (sdk *IPC) ListFiles(ctx context.Context, bucketName string) (_ []IPCFileLi
 			RootCID:     fileMeta.GetRootCid(),
 			Name:        fileMeta.GetName(),
 			EncodedSize: fileMeta.GetEncodedSize(),
+			ActualSize:  fileMeta.GetActualSize(),
 			CreatedAt:   fileMeta.GetCreatedAt().AsTime(),
 		})
 	}
@@ -400,6 +406,7 @@ func (sdk *IPC) Upload(ctx context.Context, bucketName, fileName string, reader 
 	})
 
 	var fileSize int64
+	var actualFileSize int64
 	var chunkCount int64
 
 uploadLoop:
@@ -421,6 +428,7 @@ uploadLoop:
 			}
 
 			fileSize += int64(chunkUpload.ProtoNodeSize)
+			actualFileSize += chunkUpload.ActualSize
 			chunkCount++
 		}
 	}
@@ -451,7 +459,7 @@ uploadLoop:
 		time.Sleep(time.Second) // TODO: make configurable
 	}
 
-	tx, err := sdk.ipc.Storage.CommitFile(sdk.ipc.Auth, bucket.Id, fileName, new(big.Int).SetInt64(fileSize), rootCID.Bytes())
+	tx, err := sdk.ipc.Storage.CommitFile(sdk.ipc.Auth, bucket.Id, fileName, big.NewInt(fileSize), big.NewInt(actualFileSize), rootCID.Bytes())
 	if err != nil {
 		return IPCFileMetaV2{}, errSDK.Wrap(ipc.ErrorHashToError(err))
 	}
@@ -479,7 +487,7 @@ func (sdk *IPC) createChunkUpload(ctx context.Context, index int64, fileEncrypti
 	size := int64(len(data))
 	blockSize := BlockSize.ToInt64()
 	if sdk.erasureCode != nil { // erasure coding is enabled
-		data, err = sdk.erasureCode.Encode(data)
+		data, err = sdk.erasureCode.Encode(wrapData(data))
 		if err != nil {
 			return IPCFileChunkUploadV2{}, errSDK.Wrap(err)
 		}
@@ -519,8 +527,8 @@ func (sdk *IPC) createChunkUpload(ctx context.Context, index int64, fileEncrypti
 		chunkDAG.Blocks[i].Permit = upload.Permit
 	}
 
-	tx, err := sdk.ipc.Storage.AddFileChunk(sdk.ipc.Auth, chunkDAG.CID.Bytes(), bucketID, fileName, new(big.Int).SetInt64(int64(chunkDAG.ProtoNodeSize)),
-		cids, sizes, new(big.Int).SetInt64(index))
+	tx, err := sdk.ipc.Storage.AddFileChunk(sdk.ipc.Auth, chunkDAG.CID.Bytes(), bucketID, fileName, big.NewInt(int64(chunkDAG.ProtoNodeSize)),
+		cids, sizes, big.NewInt(index))
 	if err != nil {
 		return IPCFileChunkUploadV2{}, errSDK.Wrap(ipc.ErrorHashToError(err))
 	}
@@ -722,7 +730,7 @@ func (sdk *IPC) uploadIPCBlockSegments(ctx context.Context, block *pb.IPCFileBlo
 func (sdk *IPC) CreateFileDownload(ctx context.Context, bucketName, fileName string) (_ IPCFileDownload, innerErr error) {
 	defer mon.Task()(&ctx, bucketName, fileName)(&innerErr)
 	if bucketName == "" {
-		return IPCFileDownload{}, errSDK.Errorf("empty bucket id")
+		return IPCFileDownload{}, errSDK.Errorf("empty bucket name")
 	}
 	if fileName == "" {
 		return IPCFileDownload{}, errSDK.Errorf("empty file name")
@@ -753,6 +761,54 @@ func (sdk *IPC) CreateFileDownload(ctx context.Context, bucketName, fileName str
 			EncodedSize: chunk.EncodedSize,
 			Size:        chunk.Size,
 			Index:       int64(i),
+		}
+	}
+
+	return IPCFileDownload{
+		BucketName: res.BucketName,
+		Name:       fileName,
+		Chunks:     chunks,
+	}, nil
+}
+
+// CreateRangeFileDownload creates a new download request with block ranges.
+func (sdk *IPC) CreateRangeFileDownload(ctx context.Context, bucketName, fileName string, start, end int64) (_ IPCFileDownload, err error) {
+	defer mon.Task()(&ctx, bucketName, fileName, start, end)(&err)
+
+	if bucketName == "" {
+		return IPCFileDownload{}, errSDK.Errorf("empty bucket name")
+	}
+	if fileName == "" {
+		return IPCFileDownload{}, errSDK.Errorf("empty file name")
+	}
+
+	fileName, err = sdk.maybeEncryptMetadata(fileName, bucketName+"/"+fileName)
+	if err != nil {
+		return IPCFileDownload{}, errSDK.Wrap(err)
+	}
+	bucketName, err = sdk.maybeEncryptMetadata(bucketName, bucketName)
+	if err != nil {
+		return IPCFileDownload{}, errSDK.Wrap(err)
+	}
+
+	res, err := sdk.client.FileDownloadRangeCreate(ctx, &pb.IPCFileDownloadRangeCreateRequest{
+		BucketName: bucketName,
+		FileName:   fileName,
+		Address:    sdk.ipc.Auth.From.String(),
+		StartIndex: start,
+		EndIndex:   end,
+	})
+	if err != nil {
+		return IPCFileDownload{}, errSDK.Wrap(err)
+	}
+
+	chunks := make([]Chunk, len(res.Chunks))
+	for i, chunk := range res.Chunks {
+		chunks[i] = Chunk{
+			CID:         chunk.Cid,
+			EncodedSize: chunk.EncodedSize,
+			Size:        chunk.Size,
+			Index:       int64(i) + start,
 		}
 	}
 
@@ -921,7 +977,12 @@ func (sdk *IPC) downloadChunkBlocks(
 
 	var data []byte
 	if sdk.erasureCode != nil { // erasure coding is enabled
-		data, err = sdk.erasureCode.ExtractData(blocks)
+		data, err = sdk.erasureCode.ExtractData(blocks, sdk.erasureCode.DataBlocks*len(blocks[0]))
+		if err != nil {
+			return errSDK.Wrap(err)
+		}
+
+		data, err = unwrapData(data)
 		if err != nil {
 			return errSDK.Wrap(err)
 		}
@@ -930,7 +991,7 @@ func (sdk *IPC) downloadChunkBlocks(
 	}
 
 	if len(fileEncryptionKey) > 0 {
-		data, err = encryption.Decrypt(fileEncryptionKey, data, fmt.Appendf(nil, "%d", chunkDownload.Index))
+		data, err = encryption.Decrypt(fileEncryptionKey, data, []byte(fmt.Sprintf("%d", chunkDownload.Index)))
 		if err != nil {
 			return errSDK.Wrap(err)
 		}
@@ -1027,7 +1088,7 @@ func toIPCProtoChunk(chunkCid string, index, size int64, blocks []FileBlockUploa
 
 		copy(bcid[:], c.Bytes()[4:])
 		cids = append(cids, bcid)
-		sizes = append(sizes, new(big.Int).SetInt64(int64(len(block.Data))))
+		sizes = append(sizes, big.NewInt(int64(len(block.Data))))
 	}
 	return cids, sizes, &pb.IPCChunk{
 		Cid:    chunkCid,
@@ -1035,4 +1096,27 @@ func toIPCProtoChunk(chunkCid string, index, size int64, blocks []FileBlockUploa
 		Size:   size,
 		Blocks: pbBlocks,
 	}, nil
+}
+
+func wrapData(data []byte) []byte {
+	size := uint64(len(data))
+	buf := make([]byte, 8+len(data)+len(MagicSuffix))
+	binary.BigEndian.PutUint64(buf[:8], size)
+	copy(buf[8:], data)
+	copy(buf[8+len(data):], MagicSuffix)
+	return buf
+}
+
+func unwrapData(buf []byte) ([]byte, error) {
+	if len(buf) < 8+len(MagicSuffix) {
+		return nil, fmt.Errorf("buffer too short")
+	}
+	size := binary.BigEndian.Uint64(buf[:8])
+	dataStart := 8
+	dataEnd := dataStart + int(size)
+
+	if !bytes.Equal(buf[dataEnd:dataEnd+len(MagicSuffix)], MagicSuffix) {
+		return nil, fmt.Errorf("missing suffix or corrupted data")
+	}
+	return buf[dataStart:dataEnd], nil
 }

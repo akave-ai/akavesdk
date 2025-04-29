@@ -601,14 +601,8 @@ func cmdFileDeleteIPC(cmd *cobra.Command, args []string) (err error) {
 		return err
 	}
 
-	key, err := encryptionKeyBytes()
-	if err != nil {
-		return err
-	}
-
 	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool,
 		sdk.WithPrivateKey(privKey),
-		sdk.WithEncryptionKey(key),
 		sdk.WithErasureCoding(parityBlocks()),
 	)
 	if err != nil {

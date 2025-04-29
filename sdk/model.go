@@ -143,6 +143,7 @@ type IPCFileListItem struct {
 	RootCID     string
 	Name        string
 	EncodedSize int64
+	ActualSize  int64
 	CreatedAt   time.Time
 }
 
@@ -152,6 +153,7 @@ type IPCFileMeta struct {
 	Name        string
 	BucketName  string
 	EncodedSize int64
+	ActualSize  int64
 	IsPublic    bool
 	CreatedAt   time.Time
 }

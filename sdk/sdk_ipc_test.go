@@ -396,6 +396,52 @@ func TestUploadDownloadWithErasureCodeIPC(t *testing.T) {
 	})
 }
 
+func TestRangeFileDownloadIPC(t *testing.T) {
+	privateKey := PickPrivateKey(t)
+	dialURI := PickDialURI(t)
+	pk := ipctest.NewFundedAccount(t, privateKey, dialURI, ipctest.ToWei(10))
+	newPk := hexutil.Encode(crypto.FromECDSA(pk))[2:]
+	akave, err := sdk.New(PickNodeRPCAddress(t), maxConcurrency, blockPartSize.ToInt64(), true, sdk.WithPrivateKey(newPk))
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, akave.Close())
+	})
+	ipc, err := akave.IPC()
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	fileSize := 80 * memory.MB.ToInt64()
+
+	fileData := testrand.BytesD(t, 2024, fileSize)
+
+	bucketName := randomBucketName(t, 10)
+	fileName := randomBucketName(t, 10)
+
+	_, err = ipc.CreateBucket(ctx, bucketName)
+	require.NoError(t, err)
+
+	err = ipc.CreateFileUpload(ctx, bucketName, fileName)
+	require.NoError(t, err)
+
+	_, err = ipc.Upload(ctx, bucketName, fileName, bytes.NewBuffer(fileData))
+	require.NoError(t, err)
+
+	var downloaded bytes.Buffer
+	fileDownload, err := ipc.CreateRangeFileDownload(ctx, bucketName, fileName, 1, 3)
+	require.NoError(t, err)
+	require.True(t, len(fileDownload.Chunks) == 2)
+	assert.True(t, fileDownload.Chunks[0].Index == 1)
+	assert.True(t, fileDownload.Chunks[1].Index == 2)
+
+	// download file blocks
+	err = ipc.Download(ctx, fileDownload, &downloaded)
+	require.NoError(t, err)
+
+	// check downloaded partial file contents
+	expected := fileData[32*int(sdk.BlockSize.ToInt64()):] // first chunk is skipped
+	checkFileContents(t, 10, expected, downloaded.Bytes())
+}
+
 func testUploadDownloadIPC(t *testing.T, ipc *sdk.IPC, data []byte, erasureCoding bool) {
 	file := bytes.NewBuffer(data)
 

@@ -31,8 +31,8 @@ var (
 
 // AccessManagerMetaData contains all meta data concerning the AccessManager contract.
 var AccessManagerMetaData = &bind.MetaData{
-	ABI: "[{\"inputs\":[{\"internalType\":\"address\",\"name\":\"storageAddress\",\"type\":\"address\"}],\"stateMutability\":\"nonpayable\",\"type\":\"constructor\"},{\"inputs\":[],\"name\":\"BucketNotFound\",\"type\":\"error\"},{\"inputs\":[],\"name\":\"FileDoesNotExist\",\"type\":\"error\"},{\"inputs\":[],\"name\":\"NoPolicy\",\"type\":\"error\"},{\"inputs\":[],\"name\":\"NotBucketOwner\",\"type\":\"error\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"bytes32\",\"name\":\"fileId\",\"type\":\"bytes32\"},{\"indexed\":true,\"internalType\":\"address\",\"name\":\"policyContract\",\"type\":\"address\"}],\"name\":\"PolicyChanged\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"bytes32\",\"name\":\"fileId\",\"type\":\"bytes32\"},{\"indexed\":false,\"internalType\":\"bool\",\"name\":\"isPublic\",\"type\":\"bool\"}],\"name\":\"PublicAccessChanged\",\"type\":\"event\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"fileId\",\"type\":\"bytes32\"},{\"internalType\":\"bool\",\"name\":\"isPublic\",\"type\":\"bool\"}],\"name\":\"changePublicAccess\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"fileId\",\"type\":\"bytes32\"}],\"name\":\"getFileAccessInfo\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"},{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"fileId\",\"type\":\"bytes32\"}],\"name\":\"getPolicy\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"fileId\",\"type\":\"bytes32\"},{\"internalType\":\"address\",\"name\":\"user\",\"type\":\"address\"},{\"internalType\":\"bytes\",\"name\":\"data\",\"type\":\"bytes\"}],\"name\":\"getValidateAccess\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"bucketId\",\"type\":\"bytes32\"},{\"internalType\":\"address\",\"name\":\"policyContract\",\"type\":\"address\"}],\"name\":\"setBucketPolicy\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"fileId\",\"type\":\"bytes32\"},{\"internalType\":\"address\",\"name\":\"policyContract\",\"type\":\"address\"}],\"name\":\"setFilePolicy\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"storageContract\",\"outputs\":[{\"internalType\":\"contractIStorage\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"}]",
-	Bin: "0x6080604052348015600e575f5ffd5b50604051610ee6380380610ee6833981016040819052602b91604e565b5f80546001600160a01b0319166001600160a01b03929092169190911790556079565b5f60208284031215605d575f5ffd5b81516001600160a01b03811681146072575f5ffd5b9392505050565b610e60806100865f395ff3fe608060405234801561000f575f5ffd5b506004361061007a575f3560e01c80634407880211610058578063440788021461011d578063a3f685f914610140578063c05d0d6c14610153578063e13212f814610166575f5ffd5b806311ce02671461007e57806338f5f5b2146100ad5780633a82c912146100c2575b5f5ffd5b5f54610090906001600160a01b031681565b6040516001600160a01b0390911681526020015b60405180910390f35b6100c06100bb36600461074d565b610179565b005b6100fe6100d036600461077b565b5f908152600160209081526040808320546003909252909120546001600160a01b039091169160ff90911690565b604080516001600160a01b0390931683529015156020830152016100a4565b61013061012b3660046107a6565b610273565b60405190151581526020016100a4565b61009061014e36600461077b565b610399565b6100c0610161366004610829565b610496565b6100c0610174366004610829565b6104f9565b5f8054604051637d7602a160e11b8152600481018590528492916001600160a01b03169063faec0542906024015f60405180830381865afa1580156101c0573d5f5f3e3d5ffd5b505050506040513d5f823e601f3d908101601f191682016040526101e79190810190610add565b60408101519091505f0361020e57604051631de5d86f60e11b815260040160405180910390fd5b61021b81604001516105f5565b5f84815260036020908152604091829020805460ff1916861515908117909155915191825285917f9500a58cfb37cef230929cd9f25ce92c41374416f23b1825232d0905a7e73d5a910160405180910390a250505050565b5f8481526003602052604081205460ff168061030157505f546040516306d1d7bd60e21b8152600481018790526001600160a01b03868116921690631b475ef490602401602060405180830381865afa1580156102d2573d5f5f3e3d5ffd5b505050506040513d601f19601f820116820180604052508101906102f69190610bc3565b6001600160a01b0316145b1561030e57506001610391565b5f61031886610399565b604051631704429d60e21b815290915081906001600160a01b03821690635c110a749061034d90899089908990600401610be5565b602060405180830381865afa158015610368573d5f5f3e3d5ffd5b505050506040513d601f19601f8201168201806040525081019061038c9190610c24565b925050505b949350505050565b5f818152600160205260408120546001600160a01b031661047b575f8054604051637d7602a160e11b8152600481018590526001600160a01b039091169063faec0542906024015f60405180830381865afa1580156103fa573d5f5f3e3d5ffd5b505050506040513d5f823e601f3d908101601f191682016040526104219190810190610add565b6040808201515f908152600260205220549091506001600160a01b031661045b5760405163cefa6b0560e01b815260040160405180910390fd5b6040908101515f908152600260205220546001600160a01b031692915050565b505f908152600160205260409020546001600160a01b031690565b816104a0816105f5565b5f8381526002602052604080822080546001600160a01b0319166001600160a01b0386169081179091559051909185917fee78f4c2af2887839fdcba441de8e4d2d1b117b89ce7cc7a7f0a952871cc87d29190a3505050565b5f8054604051637d7602a160e11b8152600481018590528492916001600160a01b03169063faec0542906024015f60405180830381865afa158015610540573d5f5f3e3d5ffd5b505050506040513d5f823e601f3d908101601f191682016040526105679190810190610add565b60408101519091505f0361058e57604051631de5d86f60e11b815260040160405180910390fd5b61059b81604001516105f5565b5f8481526001602052604080822080546001600160a01b0319166001600160a01b0387169081179091559051909186917fee78f4c2af2887839fdcba441de8e4d2d1b117b89ce7cc7a7f0a952871cc87d29190a350505050565b6040805160018082528183019092525f916020808301908036833701905050905081815f8151811061062957610629610c3f565b60209081029190910101525f80546040516335bdb71160e01b81526001600160a01b03909116906335bdb71190610664908590600401610c53565b5f60405180830381865afa15801561067e573d5f5f3e3d5ffd5b505050506040513d5f823e601f3d908101601f191682016040526106a59190810190610c95565b90505f5f1b815f815181106106bc576106bc610c3f565b60200260200101515f0151036106e55760405163c4c1a0c560e01b815260040160405180910390fd5b5f815f815181106106f8576106f8610c3f565b60200260200101519050336001600160a01b031681606001516001600160a01b0316146107375760405162d6b18f60e41b815260040160405180910390fd5b50505050565b801515811461074a575f5ffd5b50565b5f5f6040838503121561075e575f5ffd5b8235915060208301356107708161073d565b809150509250929050565b5f6020828403121561078b575f5ffd5b5035919050565b6001600160a01b038116811461074a575f5ffd5b5f5f5f5f606085870312156107b9575f5ffd5b8435935060208501356107cb81610792565b925060408501356001600160401b038111156107e5575f5ffd5b8501601f810187136107f5575f5ffd5b80356001600160401b0381111561080a575f5ffd5b87602082840101111561081b575f5ffd5b949793965060200194505050565b5f5f6040838503121561083a575f5ffd5b82359150602083013561077081610792565b634e487b7160e01b5f52604160045260245ffd5b604080519081016001600160401b03811182821017156108825761088261084c565b60405290565b60405160e081016001600160401b03811182821017156108825761088261084c565b60405160a081016001600160401b03811182821017156108825761088261084c565b604051601f8201601f191681016001600160401b03811182821017156108f4576108f461084c565b604052919050565b5f82601f83011261090b575f5ffd5b8151602083015f5f6001600160401b0384111561092a5761092a61084c565b50601f8301601f191660200161093f816108cc565b915050828152858383011115610953575f5ffd5b8282602083015e5f92810160200192909252509392505050565b5f6001600160401b038211156109855761098561084c565b5060051b60200190565b5f82601f83011261099e575f5ffd5b81516109b16109ac8261096d565b6108cc565b8082825260208201915060208360051b8601019250858311156109d2575f5ffd5b602085015b838110156109ef5780518352602092830192016109d7565b5095945050505050565b5f60408284031215610a09575f5ffd5b610a11610860565b905081516001600160401b03811115610a28575f5ffd5b8201601f81018413610a38575f5ffd5b8051610a466109ac8261096d565b8082825260208201915060208360051b850101925086831115610a67575f5ffd5b602084015b83811015610aa75780516001600160401b03811115610a89575f5ffd5b610a98896020838901016108fc565b84525060209283019201610a6c565b50845250505060208201516001600160401b03811115610ac5575f5ffd5b610ad18482850161098f565b60208301525092915050565b5f60208284031215610aed575f5ffd5b81516001600160401b03811115610b02575f5ffd5b820160e08185031215610b13575f5ffd5b610b1b610888565b8151815260208201516001600160401b03811115610b37575f5ffd5b610b43868285016108fc565b6020830152506040828101519082015260608201516001600160401b03811115610b6b575f5ffd5b610b77868285016108fc565b6060830152506080828101519082015260a0808301519082015260c08201516001600160401b03811115610ba9575f5ffd5b610bb5868285016109f9565b60c083015250949350505050565b5f60208284031215610bd3575f5ffd5b8151610bde81610792565b9392505050565b6001600160a01b03841681526040602082018190528101829052818360608301375f818301606090810191909152601f909201601f1916010192915050565b5f60208284031215610c34575f5ffd5b8151610bde8161073d565b634e487b7160e01b5f52603260045260245ffd5b602080825282518282018190525f918401906040840190835b81811015610c8a578351835260209384019390920191600101610c6c565b509095945050505050565b5f60208284031215610ca5575f5ffd5b81516001600160401b03811115610cba575f5ffd5b8201601f81018413610cca575f5ffd5b8051610cd86109ac8261096d565b8082825260208201915060208360051b850101925086831115610cf9575f5ffd5b602084015b83811015610e1f5780516001600160401b03811115610d1b575f5ffd5b850160a0818a03601f19011215610d30575f5ffd5b610d386108aa565b6020820151815260408201516001600160401b03811115610d57575f5ffd5b610d668b6020838601016108fc565b602083015250606082015160408201526080820151610d8481610792565b606082015260a08201516001600160401b03811115610da1575f5ffd5b60208184010192505089601f830112610db8575f5ffd5b8151610dc66109ac8261096d565b8082825260208201915060208360051b86010192508c831115610de7575f5ffd5b6020850194505b82851015610e09578451825260209485019490910190610dee565b6080840152505084525060209283019201610cfe565b50969550505050505056fea2646970667358221220ee4a73415c45aec05a76663df177fb6dd1e748206c9f12810802cb11527189bc64736f6c634300081c0033",
+	ABI: "[{\"inputs\":[{\"internalType\":\"address\",\"name\":\"storageAddress\",\"type\":\"address\"}],\"stateMutability\":\"nonpayable\",\"type\":\"constructor\"},{\"inputs\":[],\"name\":\"BucketNotFound\",\"type\":\"error\"},{\"inputs\":[],\"name\":\"FileDoesNotExist\",\"type\":\"error\"},{\"inputs\":[],\"name\":\"InvalidAddress\",\"type\":\"error\"},{\"inputs\":[],\"name\":\"NoDelegatedAccess\",\"type\":\"error\"},{\"inputs\":[],\"name\":\"NoPolicy\",\"type\":\"error\"},{\"inputs\":[],\"name\":\"NotBucketOwner\",\"type\":\"error\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"bytes32\",\"name\":\"bucketId\",\"type\":\"bytes32\"},{\"indexed\":true,\"internalType\":\"address\",\"name\":\"delegate\",\"type\":\"address\"}],\"name\":\"AccessDelegated\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"bytes32\",\"name\":\"bucketId\",\"type\":\"bytes32\"},{\"indexed\":true,\"internalType\":\"address\",\"name\":\"delegate\",\"type\":\"address\"}],\"name\":\"AccessRemoved\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"bytes32\",\"name\":\"fileId\",\"type\":\"bytes32\"},{\"indexed\":true,\"internalType\":\"address\",\"name\":\"policyContract\",\"type\":\"address\"}],\"name\":\"PolicyChanged\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"bytes32\",\"name\":\"fileId\",\"type\":\"bytes32\"},{\"indexed\":false,\"internalType\":\"bool\",\"name\":\"isPublic\",\"type\":\"bool\"}],\"name\":\"PublicAccessChanged\",\"type\":\"event\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"fileId\",\"type\":\"bytes32\"},{\"internalType\":\"bool\",\"name\":\"isPublic\",\"type\":\"bool\"}],\"name\":\"changePublicAccess\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"bucketId\",\"type\":\"bytes32\"},{\"internalType\":\"address\",\"name\":\"delegated\",\"type\":\"address\"}],\"name\":\"delegateAccess\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"fileId\",\"type\":\"bytes32\"}],\"name\":\"getFileAccessInfo\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"},{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"fileId\",\"type\":\"bytes32\"}],\"name\":\"getPolicy\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"fileId\",\"type\":\"bytes32\"},{\"internalType\":\"address\",\"name\":\"user\",\"type\":\"address\"},{\"internalType\":\"bytes\",\"name\":\"data\",\"type\":\"bytes\"}],\"name\":\"getValidateAccess\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"bucketId\",\"type\":\"bytes32\"},{\"internalType\":\"address\",\"name\":\"user\",\"type\":\"address\"}],\"name\":\"isBucketOwnerOrDelegate\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"bucketId\",\"type\":\"bytes32\"},{\"internalType\":\"address\",\"name\":\"delegated\",\"type\":\"address\"}],\"name\":\"removeAccess\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"bucketId\",\"type\":\"bytes32\"},{\"internalType\":\"address\",\"name\":\"policyContract\",\"type\":\"address\"}],\"name\":\"setBucketPolicy\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"fileId\",\"type\":\"bytes32\"},{\"internalType\":\"address\",\"name\":\"policyContract\",\"type\":\"address\"}],\"name\":\"setFilePolicy\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_storageAddress\",\"type\":\"address\"}],\"name\":\"setStorageContract\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"storageContract\",\"outputs\":[{\"internalType\":\"contractIStorage\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"}]",
+	Bin: "0x6080604052348015600e575f5ffd5b5060405161128d38038061128d833981016040819052602b91604e565b5f80546001600160a01b0319166001600160a01b03929092169190911790556079565b5f60208284031215605d575f5ffd5b81516001600160a01b03811681146072575f5ffd5b9392505050565b611207806100865f395ff3fe608060405234801561000f575f5ffd5b50600436106100a6575f3560e01c8063a3f685f91161006e578063a3f685f91461017f578063a9b61d4d14610192578063c05d0d6c146101a5578063dc38b0a2146101b8578063e124bdd9146101e7578063e13212f8146101fa575f5ffd5b806311ce0267146100aa57806338f5f5b2146100d95780633a82c912146100ee57806344078802146101495780635e2a22de1461016c575b5f5ffd5b5f546100bc906001600160a01b031681565b6040516001600160a01b0390911681526020015b60405180910390f35b6100ec6100e7366004610acd565b61020d565b005b61012a6100fc366004610afb565b5f908152600160209081526040808320546003909252909120546001600160a01b039091169160ff90911690565b604080516001600160a01b0390931683529015156020830152016100d0565b61015c610157366004610b26565b610307565b60405190151581526020016100d0565b6100ec61017a366004610ba9565b61042d565b6100bc61018d366004610afb565b6104fc565b6100ec6101a0366004610ba9565b6105f9565b6100ec6101b3366004610ba9565b610685565b6100ec6101c6366004610bcc565b5f80546001600160a01b0319166001600160a01b0392909216919091179055565b61015c6101f5366004610ba9565b6106e8565b6100ec610208366004610ba9565b610846565b5f8054604051637d7602a160e11b8152600481018590528492916001600160a01b03169063faec0542906024015f60405180830381865afa158015610254573d5f5f3e3d5ffd5b505050506040513d5f823e601f3d908101601f1916820160405261027b9190810190610e80565b60408101519091505f036102a257604051631de5d86f60e11b815260040160405180910390fd5b6102af8160400151610942565b5f84815260036020908152604091829020805460ff1916861515908117909155915191825285917f9500a58cfb37cef230929cd9f25ce92c41374416f23b1825232d0905a7e73d5a910160405180910390a250505050565b5f8481526003602052604081205460ff168061039557505f546040516306d1d7bd60e21b8152600481018790526001600160a01b03868116921690631b475ef490602401602060405180830381865afa158015610366573d5f5f3e3d5ffd5b505050506040513d601f19601f8201168201806040525081019061038a9190610f71565b6001600160a01b0316145b156103a257506001610425565b5f6103ac866104fc565b604051631704429d60e21b815290915081906001600160a01b03821690635c110a74906103e190899089908990600401610f8c565b602060405180830381865afa1580156103fc573d5f5f3e3d5ffd5b505050506040513d601f19601f820116820180604052508101906104209190610fcb565b925050505b949350505050565b8161043781610942565b6001600160a01b03821661045e5760405163e6c4247b60e01b815260040160405180910390fd5b5f8381526004602090815260408083206001600160a01b038616845290915281205460ff16151590036104a457604051635571f9bf60e11b815260040160405180910390fd5b5f8381526004602090815260408083206001600160a01b0386168085529252808320805460ff1916905551909185917f907b4ea595c8ab4b33e5ce3b70882b068119d80536a1121f37c7ab73104e2b739190a3505050565b5f818152600160205260408120546001600160a01b03166105de575f8054604051637d7602a160e11b8152600481018590526001600160a01b039091169063faec0542906024015f60405180830381865afa15801561055d573d5f5f3e3d5ffd5b505050506040513d5f823e601f3d908101601f191682016040526105849190810190610e80565b6040808201515f908152600260205220549091506001600160a01b03166105be5760405163cefa6b0560e01b815260040160405180910390fd5b6040908101515f908152600260205220546001600160a01b031692915050565b505f908152600160205260409020546001600160a01b031690565b8161060381610942565b6001600160a01b03821661062a5760405163e6c4247b60e01b815260040160405180910390fd5b5f8381526004602090815260408083206001600160a01b0386168085529252808320805460ff1916600117905551909185917f4c71ed01d4ddaea8f2390c2feb6be34befe3571daf558f29632daebe2a1724339190a3505050565b8161068f81610942565b5f8381526002602052604080822080546001600160a01b0319166001600160a01b0386169081179091559051909185917fee78f4c2af2887839fdcba441de8e4d2d1b117b89ce7cc7a7f0a952871cc87d29190a3505050565b6040805160018082528183019092525f918291906020808301908036833701905050905083815f8151811061071f5761071f610fe6565b60209081029190910101525f80546040516335bdb71160e01b81526001600160a01b03909116906335bdb7119061075a908590600401610ffa565b5f60405180830381865afa158015610774573d5f5f3e3d5ffd5b505050506040513d5f823e601f3d908101601f1916820160405261079b919081019061103c565b905080515f14806107c957505f5f1b815f815181106107bc576107bc610fe6565b60200260200101515f0151145b156107d8575f92505050610840565b5f815f815181106107eb576107eb610fe6565b6020026020010151606001519050846001600160a01b0316816001600160a01b0316148061083a57505f8681526004602090815260408083206001600160a01b038916845290915290205460ff165b93505050505b92915050565b5f8054604051637d7602a160e11b8152600481018590528492916001600160a01b03169063faec0542906024015f60405180830381865afa15801561088d573d5f5f3e3d5ffd5b505050506040513d5f823e601f3d908101601f191682016040526108b49190810190610e80565b60408101519091505f036108db57604051631de5d86f60e11b815260040160405180910390fd5b6108e88160400151610942565b5f8481526001602052604080822080546001600160a01b0319166001600160a01b0387169081179091559051909186917fee78f4c2af2887839fdcba441de8e4d2d1b117b89ce7cc7a7f0a952871cc87d29190a350505050565b6040805160018082528183019092525f916020808301908036833701905050905081815f8151811061097657610976610fe6565b60209081029190910101525f80546040516335bdb71160e01b81526001600160a01b03909116906335bdb711906109b1908590600401610ffa565b5f60405180830381865afa1580156109cb573d5f5f3e3d5ffd5b505050506040513d5f823e601f3d908101601f191682016040526109f2919081019061103c565b905080515f1480610a2057505f5f1b815f81518110610a1357610a13610fe6565b60200260200101515f0151145b15610a3e5760405163c4c1a0c560e01b815260040160405180910390fd5b5f815f81518110610a5157610a51610fe6565b60200260200101519050336001600160a01b031681606001516001600160a01b031614158015610a9a57505f84815260046020908152604080832033845290915290205460ff16155b15610ab75760405162d6b18f60e41b815260040160405180910390fd5b50505050565b8015158114610aca575f5ffd5b50565b5f5f60408385031215610ade575f5ffd5b823591506020830135610af081610abd565b809150509250929050565b5f60208284031215610b0b575f5ffd5b5035919050565b6001600160a01b0381168114610aca575f5ffd5b5f5f5f5f60608587031215610b39575f5ffd5b843593506020850135610b4b81610b12565b925060408501356001600160401b03811115610b65575f5ffd5b8501601f81018713610b75575f5ffd5b80356001600160401b03811115610b8a575f5ffd5b876020828401011115610b9b575f5ffd5b949793965060200194505050565b5f5f60408385031215610bba575f5ffd5b823591506020830135610af081610b12565b5f60208284031215610bdc575f5ffd5b8135610be781610b12565b9392505050565b634e487b7160e01b5f52604160045260245ffd5b604080519081016001600160401b0381118282101715610c2457610c24610bee565b60405290565b60405161010081016001600160401b0381118282101715610c2457610c24610bee565b60405160a081016001600160401b0381118282101715610c2457610c24610bee565b604051601f8201601f191681016001600160401b0381118282101715610c9757610c97610bee565b604052919050565b5f82601f830112610cae575f5ffd5b8151602083015f5f6001600160401b03841115610ccd57610ccd610bee565b50601f8301601f1916602001610ce281610c6f565b915050828152858383011115610cf6575f5ffd5b8282602083015e5f92810160200192909252509392505050565b5f6001600160401b03821115610d2857610d28610bee565b5060051b60200190565b5f82601f830112610d41575f5ffd5b8151610d54610d4f82610d10565b610c6f565b8082825260208201915060208360051b860101925085831115610d75575f5ffd5b602085015b83811015610d92578051835260209283019201610d7a565b5095945050505050565b5f60408284031215610dac575f5ffd5b610db4610c02565b905081516001600160401b03811115610dcb575f5ffd5b8201601f81018413610ddb575f5ffd5b8051610de9610d4f82610d10565b8082825260208201915060208360051b850101925086831115610e0a575f5ffd5b602084015b83811015610e4a5780516001600160401b03811115610e2c575f5ffd5b610e3b89602083890101610c9f565b84525060209283019201610e0f565b50845250505060208201516001600160401b03811115610e68575f5ffd5b610e7484828501610d32565b60208301525092915050565b5f60208284031215610e90575f5ffd5b81516001600160401b03811115610ea5575f5ffd5b82016101008185031215610eb7575f5ffd5b610ebf610c2a565b8151815260208201516001600160401b03811115610edb575f5ffd5b610ee786828501610c9f565b6020830152506040828101519082015260608201516001600160401b03811115610f0f575f5ffd5b610f1b86828501610c9f565b6060830152506080828101519082015260a0808301519082015260c0808301519082015260e08201516001600160401b03811115610f57575f5ffd5b610f6386828501610d9c565b60e083015250949350505050565b5f60208284031215610f81575f5ffd5b8151610be781610b12565b6001600160a01b03841681526040602082018190528101829052818360608301375f818301606090810191909152601f909201601f1916010192915050565b5f60208284031215610fdb575f5ffd5b8151610be781610abd565b634e487b7160e01b5f52603260045260245ffd5b602080825282518282018190525f918401906040840190835b81811015611031578351835260209384019390920191600101611013565b509095945050505050565b5f6020828403121561104c575f5ffd5b81516001600160401b03811115611061575f5ffd5b8201601f81018413611071575f5ffd5b805161107f610d4f82610d10565b8082825260208201915060208360051b8501019250868311156110a0575f5ffd5b602084015b838110156111c65780516001600160401b038111156110c2575f5ffd5b850160a0818a03601f190112156110d7575f5ffd5b6110df610c4d565b6020820151815260408201516001600160401b038111156110fe575f5ffd5b61110d8b602083860101610c9f565b60208301525060608201516040820152608082015161112b81610b12565b606082015260a08201516001600160401b03811115611148575f5ffd5b60208184010192505089601f83011261115f575f5ffd5b815161116d610d4f82610d10565b8082825260208201915060208360051b86010192508c83111561118e575f5ffd5b6020850194505b828510156111b0578451825260209485019490910190611195565b60808401525050845250602092830192016110a5565b50969550505050505056fea26469706673582212204d9466291fd0e9309d1e58330fd58f6e006c35976a488bd6203a88d7d5d8278064736f6c634300081c0033",
 }
 
 // AccessManagerABI is the input ABI used to generate the binding from.
@@ -296,6 +296,37 @@ func (_AccessManager *AccessManagerCallerSession) GetValidateAccess(fileId [32]b
 	return _AccessManager.Contract.GetValidateAccess(&_AccessManager.CallOpts, fileId, user, data)
 }
 
+// IsBucketOwnerOrDelegate is a free data retrieval call binding the contract method 0xe124bdd9.
+//
+// Solidity: function isBucketOwnerOrDelegate(bytes32 bucketId, address user) view returns(bool)
+func (_AccessManager *AccessManagerCaller) IsBucketOwnerOrDelegate(opts *bind.CallOpts, bucketId [32]byte, user common.Address) (bool, error) {
+	var out []interface{}
+	err := _AccessManager.contract.Call(opts, &out, "isBucketOwnerOrDelegate", bucketId, user)
+
+	if err != nil {
+		return *new(bool), err
+	}
+
+	out0 := *abi.ConvertType(out[0], new(bool)).(*bool)
+
+	return out0, err
+
+}
+
+// IsBucketOwnerOrDelegate is a free data retrieval call binding the contract method 0xe124bdd9.
+//
+// Solidity: function isBucketOwnerOrDelegate(bytes32 bucketId, address user) view returns(bool)
+func (_AccessManager *AccessManagerSession) IsBucketOwnerOrDelegate(bucketId [32]byte, user common.Address) (bool, error) {
+	return _AccessManager.Contract.IsBucketOwnerOrDelegate(&_AccessManager.CallOpts, bucketId, user)
+}
+
+// IsBucketOwnerOrDelegate is a free data retrieval call binding the contract method 0xe124bdd9.
+//
+// Solidity: function isBucketOwnerOrDelegate(bytes32 bucketId, address user) view returns(bool)
+func (_AccessManager *AccessManagerCallerSession) IsBucketOwnerOrDelegate(bucketId [32]byte, user common.Address) (bool, error) {
+	return _AccessManager.Contract.IsBucketOwnerOrDelegate(&_AccessManager.CallOpts, bucketId, user)
+}
+
 // StorageContract is a free data retrieval call binding the contract method 0x11ce0267.
 //
 // Solidity: function storageContract() view returns(address)
@@ -348,6 +379,48 @@ func (_AccessManager *AccessManagerTransactorSession) ChangePublicAccess(fileId 
 	return _AccessManager.Contract.ChangePublicAccess(&_AccessManager.TransactOpts, fileId, isPublic)
 }
 
+// DelegateAccess is a paid mutator transaction binding the contract method 0xa9b61d4d.
+//
+// Solidity: function delegateAccess(bytes32 bucketId, address delegated) returns()
+func (_AccessManager *AccessManagerTransactor) DelegateAccess(opts *bind.TransactOpts, bucketId [32]byte, delegated common.Address) (*types.Transaction, error) {
+	return _AccessManager.contract.Transact(opts, "delegateAccess", bucketId, delegated)
+}
+
+// DelegateAccess is a paid mutator transaction binding the contract method 0xa9b61d4d.
+//
+// Solidity: function delegateAccess(bytes32 bucketId, address delegated) returns()
+func (_AccessManager *AccessManagerSession) DelegateAccess(bucketId [32]byte, delegated common.Address) (*types.Transaction, error) {
+	return _AccessManager.Contract.DelegateAccess(&_AccessManager.TransactOpts, bucketId, delegated)
+}
+
+// DelegateAccess is a paid mutator transaction binding the contract method 0xa9b61d4d.
+//
+// Solidity: function delegateAccess(bytes32 bucketId, address delegated) returns()
+func (_AccessManager *AccessManagerTransactorSession) DelegateAccess(bucketId [32]byte, delegated common.Address) (*types.Transaction, error) {
+	return _AccessManager.Contract.DelegateAccess(&_AccessManager.TransactOpts, bucketId, delegated)
+}
+
+// RemoveAccess is a paid mutator transaction binding the contract method 0x5e2a22de.
+//
+// Solidity: function removeAccess(bytes32 bucketId, address delegated) returns()
+func (_AccessManager *AccessManagerTransactor) RemoveAccess(opts *bind.TransactOpts, bucketId [32]byte, delegated common.Address) (*types.Transaction, error) {
+	return _AccessManager.contract.Transact(opts, "removeAccess", bucketId, delegated)
+}
+
+// RemoveAccess is a paid mutator transaction binding the contract method 0x5e2a22de.
+//
+// Solidity: function removeAccess(bytes32 bucketId, address delegated) returns()
+func (_AccessManager *AccessManagerSession) RemoveAccess(bucketId [32]byte, delegated common.Address) (*types.Transaction, error) {
+	return _AccessManager.Contract.RemoveAccess(&_AccessManager.TransactOpts, bucketId, delegated)
+}
+
+// RemoveAccess is a paid mutator transaction binding the contract method 0x5e2a22de.
+//
+// Solidity: function removeAccess(bytes32 bucketId, address delegated) returns()
+func (_AccessManager *AccessManagerTransactorSession) RemoveAccess(bucketId [32]byte, delegated common.Address) (*types.Transaction, error) {
+	return _AccessManager.Contract.RemoveAccess(&_AccessManager.TransactOpts, bucketId, delegated)
+}
+
 // SetBucketPolicy is a paid mutator transaction binding the contract method 0xc05d0d6c.
 //
 // Solidity: function setBucketPolicy(bytes32 bucketId, address policyContract) returns()
@@ -388,6 +461,333 @@ func (_AccessManager *AccessManagerSession) SetFilePolicy(fileId [32]byte, polic
 // Solidity: function setFilePolicy(bytes32 fileId, address policyContract) returns()
 func (_AccessManager *AccessManagerTransactorSession) SetFilePolicy(fileId [32]byte, policyContract common.Address) (*types.Transaction, error) {
 	return _AccessManager.Contract.SetFilePolicy(&_AccessManager.TransactOpts, fileId, policyContract)
+}
+
+// SetStorageContract is a paid mutator transaction binding the contract method 0xdc38b0a2.
+//
+// Solidity: function setStorageContract(address _storageAddress) returns()
+func (_AccessManager *AccessManagerTransactor) SetStorageContract(opts *bind.TransactOpts, _storageAddress common.Address) (*types.Transaction, error) {
+	return _AccessManager.contract.Transact(opts, "setStorageContract", _storageAddress)
+}
+
+// SetStorageContract is a paid mutator transaction binding the contract method 0xdc38b0a2.
+//
+// Solidity: function setStorageContract(address _storageAddress) returns()
+func (_AccessManager *AccessManagerSession) SetStorageContract(_storageAddress common.Address) (*types.Transaction, error) {
+	return _AccessManager.Contract.SetStorageContract(&_AccessManager.TransactOpts, _storageAddress)
+}
+
+// SetStorageContract is a paid mutator transaction binding the contract method 0xdc38b0a2.
+//
+// Solidity: function setStorageContract(address _storageAddress) returns()
+func (_AccessManager *AccessManagerTransactorSession) SetStorageContract(_storageAddress common.Address) (*types.Transaction, error) {
+	return _AccessManager.Contract.SetStorageContract(&_AccessManager.TransactOpts, _storageAddress)
+}
+
+// AccessManagerAccessDelegatedIterator is returned from FilterAccessDelegated and is used to iterate over the raw logs and unpacked data for AccessDelegated events raised by the AccessManager contract.
+type AccessManagerAccessDelegatedIterator struct {
+	Event *AccessManagerAccessDelegated // Event containing the contract specifics and raw log
+
+	contract *bind.BoundContract // Generic contract to use for unpacking event data
+	event    string              // Event name to use for unpacking event data
+
+	logs chan types.Log        // Log channel receiving the found contract events
+	sub  ethereum.Subscription // Subscription for errors, completion and termination
+	done bool                  // Whether the subscription completed delivering logs
+	fail error                 // Occurred error to stop iteration
+}
+
+// Next advances the iterator to the subsequent event, returning whether there
+// are any more events found. In case of a retrieval or parsing error, false is
+// returned and Error() can be queried for the exact failure.
+func (it *AccessManagerAccessDelegatedIterator) Next() bool {
+	// If the iterator failed, stop iterating
+	if it.fail != nil {
+		return false
+	}
+	// If the iterator completed, deliver directly whatever's available
+	if it.done {
+		select {
+		case log := <-it.logs:
+			it.Event = new(AccessManagerAccessDelegated)
+			if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+				it.fail = err
+				return false
+			}
+			it.Event.Raw = log
+			return true
+
+		default:
+			return false
+		}
+	}
+	// Iterator still in progress, wait for either a data or an error event
+	select {
+	case log := <-it.logs:
+		it.Event = new(AccessManagerAccessDelegated)
+		if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+			it.fail = err
+			return false
+		}
+		it.Event.Raw = log
+		return true
+
+	case err := <-it.sub.Err():
+		it.done = true
+		it.fail = err
+		return it.Next()
+	}
+}
+
+// Error returns any retrieval or parsing error occurred during filtering.
+func (it *AccessManagerAccessDelegatedIterator) Error() error {
+	return it.fail
+}
+
+// Close terminates the iteration process, releasing any pending underlying
+// resources.
+func (it *AccessManagerAccessDelegatedIterator) Close() error {
+	it.sub.Unsubscribe()
+	return nil
+}
+
+// AccessManagerAccessDelegated represents a AccessDelegated event raised by the AccessManager contract.
+type AccessManagerAccessDelegated struct {
+	BucketId [32]byte
+	Delegate common.Address
+	Raw      types.Log // Blockchain specific contextual infos
+}
+
+// FilterAccessDelegated is a free log retrieval operation binding the contract event 0x4c71ed01d4ddaea8f2390c2feb6be34befe3571daf558f29632daebe2a172433.
+//
+// Solidity: event AccessDelegated(bytes32 indexed bucketId, address indexed delegate)
+func (_AccessManager *AccessManagerFilterer) FilterAccessDelegated(opts *bind.FilterOpts, bucketId [][32]byte, delegate []common.Address) (*AccessManagerAccessDelegatedIterator, error) {
+
+	var bucketIdRule []interface{}
+	for _, bucketIdItem := range bucketId {
+		bucketIdRule = append(bucketIdRule, bucketIdItem)
+	}
+	var delegateRule []interface{}
+	for _, delegateItem := range delegate {
+		delegateRule = append(delegateRule, delegateItem)
+	}
+
+	logs, sub, err := _AccessManager.contract.FilterLogs(opts, "AccessDelegated", bucketIdRule, delegateRule)
+	if err != nil {
+		return nil, err
+	}
+	return &AccessManagerAccessDelegatedIterator{contract: _AccessManager.contract, event: "AccessDelegated", logs: logs, sub: sub}, nil
+}
+
+// WatchAccessDelegated is a free log subscription operation binding the contract event 0x4c71ed01d4ddaea8f2390c2feb6be34befe3571daf558f29632daebe2a172433.
+//
+// Solidity: event AccessDelegated(bytes32 indexed bucketId, address indexed delegate)
+func (_AccessManager *AccessManagerFilterer) WatchAccessDelegated(opts *bind.WatchOpts, sink chan<- *AccessManagerAccessDelegated, bucketId [][32]byte, delegate []common.Address) (event.Subscription, error) {
+
+	var bucketIdRule []interface{}
+	for _, bucketIdItem := range bucketId {
+		bucketIdRule = append(bucketIdRule, bucketIdItem)
+	}
+	var delegateRule []interface{}
+	for _, delegateItem := range delegate {
+		delegateRule = append(delegateRule, delegateItem)
+	}
+
+	logs, sub, err := _AccessManager.contract.WatchLogs(opts, "AccessDelegated", bucketIdRule, delegateRule)
+	if err != nil {
+		return nil, err
+	}
+	return event.NewSubscription(func(quit <-chan struct{}) error {
+		defer sub.Unsubscribe()
+		for {
+			select {
+			case log := <-logs:
+				// New log arrived, parse the event and forward to the user
+				event := new(AccessManagerAccessDelegated)
+				if err := _AccessManager.contract.UnpackLog(event, "AccessDelegated", log); err != nil {
+					return err
+				}
+				event.Raw = log
+
+				select {
+				case sink <- event:
+				case err := <-sub.Err():
+					return err
+				case <-quit:
+					return nil
+				}
+			case err := <-sub.Err():
+				return err
+			case <-quit:
+				return nil
+			}
+		}
+	}), nil
+}
+
+// ParseAccessDelegated is a log parse operation binding the contract event 0x4c71ed01d4ddaea8f2390c2feb6be34befe3571daf558f29632daebe2a172433.
+//
+// Solidity: event AccessDelegated(bytes32 indexed bucketId, address indexed delegate)
+func (_AccessManager *AccessManagerFilterer) ParseAccessDelegated(log types.Log) (*AccessManagerAccessDelegated, error) {
+	event := new(AccessManagerAccessDelegated)
+	if err := _AccessManager.contract.UnpackLog(event, "AccessDelegated", log); err != nil {
+		return nil, err
+	}
+	event.Raw = log
+	return event, nil
+}
+
+// AccessManagerAccessRemovedIterator is returned from FilterAccessRemoved and is used to iterate over the raw logs and unpacked data for AccessRemoved events raised by the AccessManager contract.
+type AccessManagerAccessRemovedIterator struct {
+	Event *AccessManagerAccessRemoved // Event containing the contract specifics and raw log
+
+	contract *bind.BoundContract // Generic contract to use for unpacking event data
+	event    string              // Event name to use for unpacking event data
+
+	logs chan types.Log        // Log channel receiving the found contract events
+	sub  ethereum.Subscription // Subscription for errors, completion and termination
+	done bool                  // Whether the subscription completed delivering logs
+	fail error                 // Occurred error to stop iteration
+}
+
+// Next advances the iterator to the subsequent event, returning whether there
+// are any more events found. In case of a retrieval or parsing error, false is
+// returned and Error() can be queried for the exact failure.
+func (it *AccessManagerAccessRemovedIterator) Next() bool {
+	// If the iterator failed, stop iterating
+	if it.fail != nil {
+		return false
+	}
+	// If the iterator completed, deliver directly whatever's available
+	if it.done {
+		select {
+		case log := <-it.logs:
+			it.Event = new(AccessManagerAccessRemoved)
+			if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+				it.fail = err
+				return false
+			}
+			it.Event.Raw = log
+			return true
+
+		default:
+			return false
+		}
+	}
+	// Iterator still in progress, wait for either a data or an error event
+	select {
+	case log := <-it.logs:
+		it.Event = new(AccessManagerAccessRemoved)
+		if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+			it.fail = err
+			return false
+		}
+		it.Event.Raw = log
+		return true
+
+	case err := <-it.sub.Err():
+		it.done = true
+		it.fail = err
+		return it.Next()
+	}
+}
+
+// Error returns any retrieval or parsing error occurred during filtering.
+func (it *AccessManagerAccessRemovedIterator) Error() error {
+	return it.fail
+}
+
+// Close terminates the iteration process, releasing any pending underlying
+// resources.
+func (it *AccessManagerAccessRemovedIterator) Close() error {
+	it.sub.Unsubscribe()
+	return nil
+}
+
+// AccessManagerAccessRemoved represents a AccessRemoved event raised by the AccessManager contract.
+type AccessManagerAccessRemoved struct {
+	BucketId [32]byte
+	Delegate common.Address
+	Raw      types.Log // Blockchain specific contextual infos
+}
+
+// FilterAccessRemoved is a free log retrieval operation binding the contract event 0x907b4ea595c8ab4b33e5ce3b70882b068119d80536a1121f37c7ab73104e2b73.
+//
+// Solidity: event AccessRemoved(bytes32 indexed bucketId, address indexed delegate)
+func (_AccessManager *AccessManagerFilterer) FilterAccessRemoved(opts *bind.FilterOpts, bucketId [][32]byte, delegate []common.Address) (*AccessManagerAccessRemovedIterator, error) {
+
+	var bucketIdRule []interface{}
+	for _, bucketIdItem := range bucketId {
+		bucketIdRule = append(bucketIdRule, bucketIdItem)
+	}
+	var delegateRule []interface{}
+	for _, delegateItem := range delegate {
+		delegateRule = append(delegateRule, delegateItem)
+	}
+
+	logs, sub, err := _AccessManager.contract.FilterLogs(opts, "AccessRemoved", bucketIdRule, delegateRule)
+	if err != nil {
+		return nil, err
+	}
+	return &AccessManagerAccessRemovedIterator{contract: _AccessManager.contract, event: "AccessRemoved", logs: logs, sub: sub}, nil
+}
+
+// WatchAccessRemoved is a free log subscription operation binding the contract event 0x907b4ea595c8ab4b33e5ce3b70882b068119d80536a1121f37c7ab73104e2b73.
+//
+// Solidity: event AccessRemoved(bytes32 indexed bucketId, address indexed delegate)
+func (_AccessManager *AccessManagerFilterer) WatchAccessRemoved(opts *bind.WatchOpts, sink chan<- *AccessManagerAccessRemoved, bucketId [][32]byte, delegate []common.Address) (event.Subscription, error) {
+
+	var bucketIdRule []interface{}
+	for _, bucketIdItem := range bucketId {
+		bucketIdRule = append(bucketIdRule, bucketIdItem)
+	}
+	var delegateRule []interface{}
+	for _, delegateItem := range delegate {
+		delegateRule = append(delegateRule, delegateItem)
+	}
+
+	logs, sub, err := _AccessManager.contract.WatchLogs(opts, "AccessRemoved", bucketIdRule, delegateRule)
+	if err != nil {
+		return nil, err
+	}
+	return event.NewSubscription(func(quit <-chan struct{}) error {
+		defer sub.Unsubscribe()
+		for {
+			select {
+			case log := <-logs:
+				// New log arrived, parse the event and forward to the user
+				event := new(AccessManagerAccessRemoved)
+				if err := _AccessManager.contract.UnpackLog(event, "AccessRemoved", log); err != nil {
+					return err
+				}
+				event.Raw = log
+
+				select {
+				case sink <- event:
+				case err := <-sub.Err():
+					return err
+				case <-quit:
+					return nil
+				}
+			case err := <-sub.Err():
+				return err
+			case <-quit:
+				return nil
+			}
+		}
+	}), nil
+}
+
+// ParseAccessRemoved is a log parse operation binding the contract event 0x907b4ea595c8ab4b33e5ce3b70882b068119d80536a1121f37c7ab73104e2b73.
+//
+// Solidity: event AccessRemoved(bytes32 indexed bucketId, address indexed delegate)
+func (_AccessManager *AccessManagerFilterer) ParseAccessRemoved(log types.Log) (*AccessManagerAccessRemoved, error) {
+	event := new(AccessManagerAccessRemoved)
+	if err := _AccessManager.contract.UnpackLog(event, "AccessRemoved", log); err != nil {
+		return nil, err
+	}
+	event.Raw = log
+	return event, nil
 }
 
 // AccessManagerPolicyChangedIterator is returned from FilterPolicyChanged and is used to iterate over the raw logs and unpacked data for PolicyChanged events raised by the AccessManager contract.

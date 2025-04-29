@@ -16,6 +16,7 @@ service IPCNodeAPI {
   rpc FileUploadBlock (stream IPCFileBlockData) returns (IPCFileUploadBlockResponse) {}
   rpc FileView (IPCFileViewRequest) returns (IPCFileViewResponse) {}
   rpc FileDownloadCreate (IPCFileDownloadCreateRequest) returns (IPCFileDownloadCreateResponse) {}
+  rpc FileDownloadRangeCreate (IPCFileDownloadRangeCreateRequest) returns (IPCFileDownloadCreateResponse) {}
   rpc FileDownloadChunkCreate (IPCFileDownloadChunkCreateRequest) returns (IPCFileDownloadChunkCreateResponse) {}
   rpc FileDownloadBlock (IPCFileDownloadBlockRequest) returns (stream IPCFileBlockData) {}
   rpc FileList (IPCFileListRequest) returns (IPCFileListResponse) {}
@@ -116,6 +117,7 @@ message IPCFileViewResponse {
   int64 encoded_size = 4;
   bool is_public = 5;
   google.protobuf.Timestamp created_at = 6;
+  int64 actual_size = 7;
 }
 
 message IPCFileDownloadCreateRequest {
@@ -133,6 +135,14 @@ message IPCFileDownloadCreateResponse {
     int64 encoded_size = 2;
     int64 size = 3;
   }
+}
+
+message IPCFileDownloadRangeCreateRequest {
+  string bucket_name = 1;
+  string file_name = 2;
+  string address = 3;
+  int64 start_index = 4;
+  int64 end_index = 5;
 }
 
 message IPCFileDownloadChunkCreateRequest {
@@ -177,6 +187,7 @@ message IPCFileListResponse {
     string name = 2;
     int64 encoded_size = 3;
     google.protobuf.Timestamp created_at = 4;
+    int64 actual_size = 5;
   }
 }
 
