@@ -6,7 +6,6 @@ package sdk
 import (
 	"bytes"
 	"context"
-	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -29,9 +28,6 @@ import (
 	"github.com/akave-ai/akavesdk/private/ipc"
 	"github.com/akave-ai/akavesdk/private/pb"
 )
-
-// MagicSuffix used to indicate that trim zeroes wouldn't harm actual data after erasure coding.
-var MagicSuffix = []byte{0xDE, 0xAD, 0xBE, 0xEF}
 
 // IPC exposes SDK ipc API.
 type IPC struct {
@@ -487,7 +483,7 @@ func (sdk *IPC) createChunkUpload(ctx context.Context, index int64, fileEncrypti
 	size := int64(len(data))
 	blockSize := BlockSize.ToInt64()
 	if sdk.erasureCode != nil { // erasure coding is enabled
-		data, err = sdk.erasureCode.Encode(wrapData(data))
+		data, err = sdk.erasureCode.Encode(data)
 		if err != nil {
 			return IPCFileChunkUploadV2{}, errSDK.Wrap(err)
 		}
@@ -977,12 +973,7 @@ func (sdk *IPC) downloadChunkBlocks(
 
 	var data []byte
 	if sdk.erasureCode != nil { // erasure coding is enabled
-		data, err = sdk.erasureCode.ExtractData(blocks, sdk.erasureCode.DataBlocks*len(blocks[0]))
-		if err != nil {
-			return errSDK.Wrap(err)
-		}
-
-		data, err = unwrapData(data)
+		data, err = sdk.erasureCode.ExtractData(blocks)
 		if err != nil {
 			return errSDK.Wrap(err)
 		}
@@ -991,7 +982,7 @@ func (sdk *IPC) downloadChunkBlocks(
 	}
 
 	if len(fileEncryptionKey) > 0 {
-		data, err = encryption.Decrypt(fileEncryptionKey, data, []byte(fmt.Sprintf("%d", chunkDownload.Index)))
+		data, err = encryption.Decrypt(fileEncryptionKey, data, fmt.Appendf(nil, "%d", chunkDownload.Index))
 		if err != nil {
 			return errSDK.Wrap(err)
 		}
@@ -1096,27 +1087,4 @@ func toIPCProtoChunk(chunkCid string, index, size int64, blocks []FileBlockUploa
 		Size:   size,
 		Blocks: pbBlocks,
 	}, nil
-}
-
-func wrapData(data []byte) []byte {
-	size := uint64(len(data))
-	buf := make([]byte, 8+len(data)+len(MagicSuffix))
-	binary.BigEndian.PutUint64(buf[:8], size)
-	copy(buf[8:], data)
-	copy(buf[8+len(data):], MagicSuffix)
-	return buf
-}
-
-func unwrapData(buf []byte) ([]byte, error) {
-	if len(buf) < 8+len(MagicSuffix) {
-		return nil, fmt.Errorf("buffer too short")
-	}
-	size := binary.BigEndian.Uint64(buf[:8])
-	dataStart := 8
-	dataEnd := dataStart + int(size)
-
-	if !bytes.Equal(buf[dataEnd:dataEnd+len(MagicSuffix)], MagicSuffix) {
-		return nil, fmt.Errorf("missing suffix or corrupted data")
-	}
-	return buf[dataStart:dataEnd], nil
 }
