@@ -126,7 +126,7 @@ func parseErrorsToHashes() []string {
 		"NotThePolicyOwner()", "InvalidBlocksAmount()", "InvalidBlockIndex()", "LastChunkDuplicate()", "FileNotExists()", "Invalid signature: Not signed by bucket owner",
 		"Nonce already used"}
 
-	errHashes := make([]string, 0)
+	errHashes := make([]string, len(errorsContract))
 
 	for _, errC := range errorsContract {
 		hash := crypto.Keccak256([]byte(errC))
