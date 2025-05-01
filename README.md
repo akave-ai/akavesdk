@@ -355,4 +355,8 @@ Disable erasure coding flag `disable-erasure-coding` ensures that the file is no
   ```sh
   akavecli ipc file download <bucket-name> <file-name> <destination-path> -e="encryption-key" --disable-erasure-coding --node-address=localhost:5000 --private-key="some-private-key"
   ```
+- **Delete File**: Deletes a file from a bucket 
+  ```sh
+  akavecli ipc file delete <bucket-name> <file-name> --node-address=localhost:5000 --private-key="some-private-key"
+  ```
  
