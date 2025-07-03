@@ -22,7 +22,7 @@ test_quick:
 .PHONY: test_sdk
 test_sdk:
   ## if PRIVATE_KEY is absent, ipc tests will be skipped
-	@NODE_RPC_ADDRESS=127.0.0.1:5000 PRIVATE_KEY=${PRIVATE_KEY} go test -v -count=1 -timeout 10m ./sdk/sdk_test.go
+	@NODE_RPC_ADDRESS=127.0.0.1:5000 PRIVATE_KEY=${PRIVATE_KEY} go test -v -count=1 -timeout 10m ./sdk/sdk_test.go ./sdk/sdk_ipc_test.go
 
 .PHONY: test_cli
 test_cli:
