@@ -4,6 +4,7 @@
 package ipc_test
 
 import (
+	"encoding/hex"
 	"math/big"
 	"testing"
 
@@ -55,5 +56,32 @@ func TestCalculateFileID(t *testing.T) {
 	} {
 		fileID := ipc.CalculateFileID(testCase.BucketID, testCase.Name)
 		require.Equal(t, testCase.Expected, fileID)
+	}
+}
+
+func TestCalculateBucketID(t *testing.T) {
+	for _, testCase := range []struct {
+		BucketName string
+		Address    string
+		Expected   string
+	}{
+		{
+			BucketName: "test1",
+			Address:    "eea1eddf9f4be315e978c6d0d25d1b870ec0162ebf0acf173f47b738ff0cb421",
+			Expected:   "7d8b15e57405638fe772de6bb73b94345deb1f41fa1850654bc1f587a5a6afa7",
+		},
+		{
+			BucketName: "bucket new",
+			Address:    "eea1eddf9f4be315e978c6d0d25d1b870ec0162ebf0acf173f47b738ff0cb421",
+			Expected:   "ca7b393db299deee1bf58fcb9670b9e6e6079cba1e85bca7c62dbd889caba925",
+		},
+		{
+			BucketName: "random name",
+			Address:    "eea1eddf9f4be315e978c6d0d25d1b870ec0162ebf0acf173f47b738ff0cb421",
+			Expected:   "8f92db9fde643ed88b4dc2e238e329bafdff4a172b34d0501c2f46a0d2c36696",
+		},
+	} {
+		bucketID := ipc.CalculateBucketID(testCase.BucketName, testCase.Address)
+		require.Equal(t, testCase.Expected, hex.EncodeToString(bucketID))
 	}
 }

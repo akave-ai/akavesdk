@@ -4,24 +4,25 @@
 package ipc_test
 
 import (
-	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/rand"
 	"encoding/hex"
 	"flag"
+	"fmt"
 	"math/big"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
 
-	"github.com/akave-ai/akavesdk/private/eip712"
 	"github.com/akave-ai/akavesdk/private/ipc"
 	"github.com/akave-ai/akavesdk/private/ipctest"
 	"github.com/akave-ai/akavesdk/private/testrand"
@@ -122,23 +123,10 @@ func TestContracts(t *testing.T) {
 	nodeId, err := hex.DecodeString("c39cd1e86738c302a2fc3eb6f6cc5d2f8a964ad29490c4335b2a2e089e0dcaf5")
 	require.NoError(t, err)
 
-	dataTypes := map[string][]eip712.TypedData{
-		"StorageData": {
-			{Name: "chunkCID", Type: "bytes"},
-			{Name: "blockCID", Type: "bytes32"},
-			{Name: "chunkIndex", Type: "uint256"},
-			{Name: "blockIndex", Type: "uint8"},
-			{Name: "nodeId", Type: "bytes"},
-			{Name: "nonce", Type: "uint256"},
-		},
-	}
+	var nodeId32 [32]byte
+	copy(nodeId32[:], nodeId)
 
-	domain := eip712.Domain{
-		Name:              "Storage",
-		Version:           "1",
-		ChainID:           big.NewInt(31337),
-		VerifyingContract: common.HexToAddress(storageAddress),
-	}
+	deadline := time.Now().Add(time.Hour * 24).Unix()
 
 	for j := range 32 {
 		index := uint8(j)
@@ -148,23 +136,16 @@ func TestContracts(t *testing.T) {
 			BlockCID:   cids[j],
 			ChunkIndex: big.NewInt(0),
 			BlockIndex: index,
-			NodeID:     nodeId,
+			NodeID:     nodeId32,
 			Nonce:      nonces[j],
+			Deadline:   big.NewInt(deadline),
+			BucketID:   bucket.Id,
 		}
 
-		dataMessage := map[string]interface{}{
-			"chunkCID":   data.ChunkCID,
-			"blockCID":   data.BlockCID,
-			"chunkIndex": data.ChunkIndex,
-			"blockIndex": data.BlockIndex,
-			"nodeId":     data.NodeID,
-			"nonce":      data.Nonce,
-		}
-
-		sign, err := eip712.Sign(pk, domain, dataMessage, dataTypes)
+		sign, err := ipc.SignBlock(pk, storageAddress, big.NewInt(31337), data)
 		require.NoError(t, err)
 
-		tx, err = client.Storage.FillChunkBlock(client.Auth, cids[j], nodeId, bucket.Id, big.NewInt(0), nonces[j], index, testFileName, sign)
+		tx, err = client.Storage.FillChunkBlock(client.Auth, cids[j], nodeId32, bucket.Id, big.NewInt(0), nonces[j], index, testFileName, sign, big.NewInt(deadline))
 		require.NoError(t, err)
 		require.NoError(t, client.WaitForTx(ctx, tx.Hash()))
 	}
@@ -224,38 +205,133 @@ func TestContracts(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, listIDs, 0)
 
-	var peerBlockCid [32]byte
+	var peerBlockCid, peerId1byte32, peerId2byte32 [32]byte
 	copy(peerBlockCid[:], "new test CID")
 
-	tx, err = client.Storage.AddPeerBlock(client.Auth, []byte(testrand.GenPeerID(t, "peer1")), peerBlockCid, false)
+	peerId1, err := testrand.GenPeerID(t, "peer1").MarshalBinary()
+	require.NoError(t, err)
+	copy(peerId1byte32[:], peerId1[6:])
+
+	peerId2, err := testrand.GenPeerID(t, "peer2").MarshalBinary()
+	require.NoError(t, err)
+	copy(peerId2byte32[:], peerId2[6:])
+
+	tx, err = client.Storage.AddPeerBlock(client.Auth, peerId1byte32, peerBlockCid, testFileName, false)
 	require.NoError(t, err)
 	require.NoError(t, client.WaitForTx(ctx, tx.Hash()))
 
-	tx, err = client.Storage.AddPeerBlock(client.Auth, []byte(testrand.GenPeerID(t, "peer2")), peerBlockCid, true)
+	tx, err = client.Storage.AddPeerBlock(client.Auth, peerId2byte32, peerBlockCid, testFileName, true)
 	require.NoError(t, err)
 	require.NoError(t, client.WaitForTx(ctx, tx.Hash()))
 
-	listPeerIDs, err := client.Storage.GetPeersByPeerBlockCid(&bind.CallOpts{}, peerBlockCid)
+	listPeerIDs, err := client.Storage.GetPeersByPeerBlockCid(&bind.CallOpts{}, peerBlockCid, testFileName)
 	require.NoError(t, err)
-	require.True(t, bytes.Equal(listPeerIDs[0], []byte(testrand.GenPeerID(t, "peer1"))))
-	require.True(t, bytes.Equal(listPeerIDs[1], []byte(testrand.GenPeerID(t, "peer2"))))
+	require.Equal(t, listPeerIDs[0], peerId1byte32)
+	require.Equal(t, listPeerIDs[1], peerId2byte32)
+
+	peersMap, err := client.Storage.GetPeersArrayByPeerBlockCid(&bind.CallOpts{}, [][32]byte{peerBlockCid}, testFileName)
+	require.NoError(t, err)
+	require.Len(t, peersMap, 1)
 
 	var b []byte
-	b = append(b, []byte(testrand.GenPeerID(t, "peer1"))...)
+	b = append(b, peerId1byte32[:]...)
 	b = append(b, peerBlockCid[:]...)
+	b = append(b, testFileName...)
 
 	id := crypto.Keccak256Hash(b)
 
-	idx, err := client.Storage.GetPeerBlockIndexById(&bind.CallOpts{}, []byte(testrand.GenPeerID(t, "peer1")), peerBlockCid)
+	idx, err := client.Storage.GetPeerBlockIndexById(&bind.CallOpts{}, peerId1byte32, peerBlockCid, testFileName)
 	require.NoError(t, err)
 
-	tx, err = client.Storage.DeletePeerBlock(client.Auth, id, []byte(testrand.GenPeerID(t, "peer1")), peerBlockCid, idx)
+	tx, err = client.Storage.DeletePeerBlock(client.Auth, id, peerId1byte32, peerBlockCid, testFileName, idx)
 	require.NoError(t, err)
 	require.NoError(t, client.WaitForTx(ctx, tx.Hash()))
+}
 
-	pb, err := client.Storage.GetPeerBlockById(&bind.CallOpts{}, id)
+func TestGetTransactionReceiptsBatch(t *testing.T) {
+	var (
+		ctx        = context.Background()
+		dialUri    = PickDialURI(t)
+		privateKey = PickPrivateKey(t)
+	)
+
+	pk := ipctest.NewFundedAccount(t, privateKey, dialUri, ipctest.ToWei(10))
+	newPk := hexutil.Encode(crypto.FromECDSA(pk))[2:]
+
+	client, _, _, err := ipc.DeployStorage(ctx, ipc.Config{
+		DialURI:    dialUri,
+		PrivateKey: newPk,
+	})
 	require.NoError(t, err)
-	require.Equal(t, []byte{}, pb.PeerId)
+
+	const numTxs = 55
+	var requests []ipc.BatchReceiptRequest
+
+	fromAddress := crypto.PubkeyToAddress(pk.PublicKey)
+	nonce, err := client.Eth.PendingNonceAt(ctx, fromAddress)
+	require.NoError(t, err)
+
+	gasPrice, err := client.Eth.SuggestGasPrice(ctx)
+	require.NoError(t, err)
+
+	chainID, err := client.Eth.NetworkID(ctx)
+	require.NoError(t, err)
+
+	for i := 0; i < numTxs; i++ {
+		toAddress := common.HexToAddress("0x000000000000000000000000000000000000dead")
+
+		tx := types.NewTx(&types.LegacyTx{
+			Nonce:    nonce + uint64(i),
+			To:       &toAddress,
+			Value:    big.NewInt(0),
+			Gas:      21000,
+			GasPrice: gasPrice,
+		})
+
+		signedTx, err := types.SignTx(tx, types.NewEIP155Signer(chainID), pk)
+		require.NoError(t, err)
+		require.NoError(t, client.Eth.SendTransaction(ctx, signedTx))
+
+		hash := signedTx.Hash()
+		requests = append(requests, ipc.BatchReceiptRequest{
+			Hash: hash,
+			Key:  fmt.Sprintf("tx-%d", i),
+		})
+	}
+
+	result, err := client.GetTransactionReceiptsBatch(ctx, requests, 30*time.Second)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, len(requests), len(result.Responses))
+
+	receiptsFound := 0
+	receiptsNotFound := 0
+	individualErrors := 0
+
+	for i, response := range result.Responses {
+		expectedKey := fmt.Sprintf("tx-%d", i)
+		require.Equal(t, expectedKey, response.Key)
+
+		if response.Error != nil {
+			individualErrors++
+			t.Logf("Transaction %s has error: %v", requests[i].Hash.Hex(), response.Error)
+		} else if response.Receipt == nil {
+			receiptsNotFound++
+			t.Logf("Transaction %s not yet mined (receipt is nil)", requests[i].Hash.Hex())
+		} else {
+			receiptsFound++
+			require.Equal(t, requests[i].Hash, response.Receipt.TxHash)
+			require.True(t, response.Receipt.Status == 0 || response.Receipt.Status == 1)
+			require.True(t, response.Receipt.BlockNumber.Uint64() > 0)
+
+			t.Logf("Transaction %s mined in block %d with status %d",
+				response.Receipt.TxHash.Hex(),
+				response.Receipt.BlockNumber.Uint64(),
+				response.Receipt.Status)
+		}
+	}
+
+	require.Equal(t, len(requests), receiptsFound+receiptsNotFound+individualErrors)
 }
 
 func generateRandomAddress(t *testing.T) common.Address {

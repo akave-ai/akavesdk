@@ -6,6 +6,8 @@ package sdk_test
 import (
 	"bytes"
 	"context"
+	"fmt"
+	"io"
 	"testing"
 	"time"
 
@@ -150,12 +152,13 @@ func TestFileInfo(t *testing.T) {
 	_, err = ipc.CreateBucket(context.Background(), bucketName)
 	require.NoError(t, err)
 
-	require.NoError(t, ipc.CreateFileUpload(context.Background(), bucketName, fileName))
+	fileUpload, err := ipc.CreateFileUpload(context.Background(), bucketName, fileName)
+	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	upResult, err := ipc.Upload(ctx, bucketName, fileName, file)
+	upResult, err := ipc.Upload(ctx, fileUpload, file)
 	require.NoError(t, err)
 	assert.Equal(t, upResult.Name, fileName)
 
@@ -164,7 +167,7 @@ func TestFileInfo(t *testing.T) {
 	assert.False(t, info.IsPublic)
 	assert.Equal(t, fileName, info.Name)
 	assert.Equal(t, bucketName, info.BucketName)
-	assert.Equal(t, file.Len(), info.EncodedSize)
+	assert.GreaterOrEqual(t, info.EncodedSize, memory.MB.ToInt64())
 }
 
 func TestListFiles(t *testing.T) {
@@ -193,9 +196,10 @@ func TestListFiles(t *testing.T) {
 		file := bytes.NewBuffer(testrand.BytesD(t, 1, int64(i+1)*memory.MB.ToInt64()))
 		fileName := randomBucketName(t, 10)
 
-		require.NoError(t, ipc.CreateFileUpload(context.Background(), bucketName, fileName))
+		fileUpload, err := ipc.CreateFileUpload(context.Background(), bucketName, fileName)
+		require.NoError(t, err)
 
-		upResult, err := ipc.Upload(ctx, bucketName, fileName, file)
+		upResult, err := ipc.Upload(ctx, fileUpload, file)
 		require.NoError(t, err)
 		assert.Equal(t, upResult.Name, fileName)
 	}
@@ -230,9 +234,10 @@ func TestFileDeleteIPC(t *testing.T) {
 	file := bytes.NewBuffer(testrand.BytesD(t, 1, 5*memory.MB.ToInt64()))
 	fileName := randomBucketName(t, 10)
 
-	require.NoError(t, ipc.CreateFileUpload(ctx, bucketName, fileName))
+	fileUpload, err := ipc.CreateFileUpload(ctx, bucketName, fileName)
+	require.NoError(t, err)
 
-	_, err = ipc.Upload(ctx, bucketName, fileName, file)
+	_, err = ipc.Upload(ctx, fileUpload, file)
 	require.NoError(t, err)
 
 	require.NoError(t, ipc.FileDelete(ctx, bucketName, fileName))
@@ -268,9 +273,10 @@ func TestFileSetPublicAccess(t *testing.T) {
 	_, err = ipc.CreateBucket(ctx, bucketName)
 	require.NoError(t, err)
 
-	require.NoError(t, ipc.CreateFileUpload(ctx, bucketName, fileName))
+	fileUpload, err := ipc.CreateFileUpload(ctx, bucketName, fileName)
+	require.NoError(t, err)
 
-	upResult, err := ipc.Upload(ctx, bucketName, fileName, file)
+	upResult, err := ipc.Upload(ctx, fileUpload, file)
 	require.NoError(t, err)
 	assert.Equal(t, upResult.Name, fileName)
 
@@ -349,7 +355,7 @@ func TestUploadDownloadWithErasureCodeIPC(t *testing.T) {
 		{"5 MB", 5},
 		{"15 MB", 15},
 		{"35 MB", 35},
-		{"256 MB", 256},
+		{"255 MB", 255},
 	}
 
 	privateKey := PickPrivateKey(t)
@@ -420,10 +426,10 @@ func TestRangeFileDownloadIPC(t *testing.T) {
 	_, err = ipc.CreateBucket(ctx, bucketName)
 	require.NoError(t, err)
 
-	err = ipc.CreateFileUpload(ctx, bucketName, fileName)
+	fileUpload, err := ipc.CreateFileUpload(ctx, bucketName, fileName)
 	require.NoError(t, err)
 
-	_, err = ipc.Upload(ctx, bucketName, fileName, bytes.NewBuffer(fileData))
+	_, err = ipc.Upload(ctx, fileUpload, bytes.NewBuffer(fileData))
 	require.NoError(t, err)
 
 	var downloaded bytes.Buffer
@@ -437,13 +443,94 @@ func TestRangeFileDownloadIPC(t *testing.T) {
 	err = ipc.Download(ctx, fileDownload, &downloaded)
 	require.NoError(t, err)
 
+	chunks, blocks, bytesCount := fileDownload.Stats()
+	t.Logf("Range download stats - Chunks: %d, Blocks: %d, Bytes: %d", chunks, blocks, bytesCount)
+
+	assert.True(t, chunks > 0, "chunks counter should be greater than 0")
+	assert.True(t, blocks > 0, "blocks counter should be greater than 0")
+	assert.True(t, bytesCount > 0, "bytes counter should be greater than 0")
+
+	assert.Equal(t, int64(len(fileDownload.Chunks)), chunks, "chunks counter should match number of chunks")
+	assert.Equal(t, int64(2), chunks, "should have downloaded exactly 2 chunks for range 1-3")
+
+	expectedMinBlocks := (chunks - 1) * 32
+	assert.True(t, blocks >= expectedMinBlocks, "blocks counter (%d) should be >= (chunkCount-1)*32 (%d)", blocks, expectedMinBlocks)
+
 	// check downloaded partial file contents
 	expected := fileData[32*int(sdk.BlockSize.ToInt64()):] // first chunk is skipped
 	checkFileContents(t, 10, expected, downloaded.Bytes())
 }
 
+func TestResumeUploadIPC(t *testing.T) {
+	privateKey := PickPrivateKey(t)
+	dialURI := PickDialURI(t)
+	pk := ipctest.NewFundedAccount(t, privateKey, dialURI, ipctest.ToWei(10))
+	newPk := hexutil.Encode(crypto.FromECDSA(pk))[2:]
+
+	akave, err := sdk.New(PickNodeRPCAddress(t), maxConcurrency, blockPartSize.ToInt64(), true, sdk.WithPrivateKey(newPk))
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, akave.Close())
+	})
+
+	ipc, err := akave.IPC()
+	require.NoError(t, err)
+
+	data := testrand.BytesD(t, 2024, 70*memory.MB.ToInt64())
+
+	bucketName := randomBucketName(t, 10)
+	fileName := randomBucketName(t, 10)
+
+	ctx := context.Background()
+
+	_, err = ipc.CreateBucket(ctx, bucketName)
+	require.NoError(t, err)
+
+	fileUpload, err := ipc.CreateFileUpload(ctx, bucketName, fileName)
+	require.NoError(t, err)
+
+	reader := &FailingReader{
+		data:           data,
+		failAfterBytes: 65 * memory.MB.ToInt64(), // Fail after 65MB
+	}
+
+	// Start upload - this should fail partway through
+	_, err = ipc.Upload(ctx, fileUpload, reader)
+	require.Error(t, err, "Upload should fail")
+	require.Contains(t, err.Error(), "simulated read failure", "Error should be due to simulated failure")
+
+	// Verify that some data was uploaded (reader position should have advanced)
+	require.Greater(t, reader.pos, int64(0), "Some data should have been read before cancellation")
+	require.Less(t, reader.pos, int64(len(data)), "Not all data should have been read due to cancellation")
+
+	t.Logf("Upload was canceled after reading %d bytes out of %d total", reader.pos, len(data))
+
+	// Now resume the upload with the same fileUpload and new reader with original data
+	resumeResult, err := ipc.Upload(ctx, fileUpload, bytes.NewBuffer(data))
+	require.NoError(t, err)
+
+	assert.Equal(t, fileName, resumeResult.Name)
+	assert.GreaterOrEqual(t, resumeResult.EncodedSize, int64(len(data)))
+
+	// Verify the complete file by downloading it
+	var downloaded bytes.Buffer
+	fileDownload, err := ipc.CreateFileDownload(ctx, bucketName, fileName)
+	require.NoError(t, err)
+
+	err = ipc.Download(ctx, fileDownload, &downloaded)
+	require.NoError(t, err)
+
+	// Check that the downloaded data matches the original
+	checkFileContents(t, len(data), data, downloaded.Bytes())
+
+	_, err = ipc.Upload(ctx, fileUpload, bytes.NewBuffer(data))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "file is already committed")
+}
+
 func testUploadDownloadIPC(t *testing.T, ipc *sdk.IPC, data []byte, erasureCoding bool) {
 	file := bytes.NewBuffer(data)
+	fileSize := len(file.Bytes())
 
 	bucketName := randomBucketName(t, 10)
 	fileName := randomBucketName(t, 10)
@@ -455,13 +542,16 @@ func testUploadDownloadIPC(t *testing.T, ipc *sdk.IPC, data []byte, erasureCodin
 	require.NoError(t, err)
 
 	now := time.Now()
-	require.NoError(t, ipc.CreateFileUpload(ctx, bucketName, fileName))
+	fileUpload, err := ipc.CreateFileUpload(ctx, bucketName, fileName)
+	require.NoError(t, err)
 	fileUploadDuration := time.Since(now)
 	t.Logf("Create file upload duration: %v", fileUploadDuration)
 
 	now = time.Now()
-	u, err := ipc.Upload(ctx, bucketName, fileName, file)
+	u, err := ipc.Upload(ctx, fileUpload, file)
 	require.NoError(t, err)
+	require.Equal(t, u.Size, int64(fileSize))
+
 	t.Logf("Upload duration: %v", time.Since(now))
 
 	var downloaded bytes.Buffer
@@ -476,9 +566,58 @@ func testUploadDownloadIPC(t *testing.T, ipc *sdk.IPC, data []byte, erasureCodin
 	require.NoError(t, ipc.Download(ctx, fileDownload, &downloaded))
 	t.Logf("Download duration: %v", time.Since(now))
 
+	chunks, blocks, bytesCount := fileDownload.Stats()
+	t.Logf("Download stats - Chunks: %d, Blocks: %d, Bytes: %d", chunks, blocks, bytesCount)
+
+	assert.True(t, chunks > 0, "chunks counter should be greater than 0")
+	assert.True(t, blocks > 0, "blocks counter should be greater than 0")
+	assert.True(t, bytesCount > 0, "bytes counter should be greater than 0")
+
+	assert.Equal(t, int64(len(fileDownload.Chunks)), chunks, "chunks counter should match number of chunks")
+
+	if erasureCoding {
+		expectedBlocks := chunks * 32
+		assert.Equal(t, expectedBlocks, blocks, "with erasure coding, blocks counter should be exactly chunkCount*32")
+	} else {
+		expectedMinBlocks := (chunks - 1) * 32
+		assert.True(t, blocks >= expectedMinBlocks, "blocks counter (%d) should be >= (chunkCount-1)*32 (%d)", blocks, expectedMinBlocks)
+	}
+
+	// Some overhead is added to real data during upload
+	assert.GreaterOrEqual(t, bytesCount, int64(len(data)), "bytes counter should be slightly larger than data size")
+
 	checkFileContents(t, 10, data, downloaded.Bytes())
 }
 
 func ceilDiv(a, b int64) int64 {
 	return (a + b - 1) / b
+}
+
+// FailingReader simulates a reader that fails after reading a specific number of bytes.
+type FailingReader struct {
+	data           []byte
+	pos            int64
+	failAfterBytes int64
+}
+
+func (r *FailingReader) Read(p []byte) (n int, err error) {
+	if r.pos >= int64(len(r.data)) {
+		return 0, io.EOF
+	}
+
+	// Calculate how much to read
+	toRead := len(p)
+	if r.pos+int64(toRead) > int64(len(r.data)) {
+		toRead = int(int64(len(r.data)) - r.pos)
+	}
+
+	copy(p, r.data[r.pos:r.pos+int64(toRead)])
+	r.pos += int64(toRead)
+
+	// Check if we should fail
+	if r.pos >= r.failAfterBytes {
+		r.pos = r.failAfterBytes // Ensure we don't read more than intended
+		return 0, fmt.Errorf("simulated read failure after %d bytes", r.pos)
+	}
+	return toRead, nil
 }

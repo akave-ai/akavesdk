@@ -5,9 +5,14 @@
 package sdk
 
 import (
+	"slices"
+	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ipfs/go-cid"
+	"golang.org/x/exp/maps"
 )
 
 // BucketCreateResult is the result of bucket creation.
@@ -63,18 +68,24 @@ type FileBlockDownload struct {
 
 // FileListItem contains bucket file list file meta information.
 type FileListItem struct {
-	RootCID   string
-	Name      string
-	Size      int64
-	CreatedAt time.Time
+	RootCID     string
+	Name        string
+	Size        int64
+	DataBlocks  int64
+	TotalBlocks int64
+	CreatedAt   time.Time
 }
 
 // FileUpload contains single file meta information.
 type FileUpload struct {
-	BucketName string
-	Name       string
-	StreamID   string
-	CreatedAt  time.Time
+	dataCounters
+
+	BucketName  string
+	Name        string
+	StreamID    string
+	DataBlocks  int64
+	TotalBlocks int64
+	CreatedAt   time.Time
 }
 
 // FileChunkUpload contains single file chunk meta information.
@@ -82,7 +93,6 @@ type FileChunkUpload struct {
 	StreamID      string
 	Index         int64
 	ChunkCID      cid.Cid
-	ActualSize    int64
 	RawDataSize   uint64
 	ProtoNodeSize uint64
 	Blocks        []FileBlockUpload
@@ -90,10 +100,12 @@ type FileChunkUpload struct {
 
 // FileDownload contains single file meta information.
 type FileDownload struct {
-	StreamID   string
-	BucketName string
-	Name       string
-	Chunks     []Chunk
+	StreamID    string
+	BucketName  string
+	Name        string
+	DataBlocks  int64
+	TotalBlocks int64
+	Chunks      []Chunk
 }
 
 // FileChunkDownload contains single file chunk meta information.
@@ -113,6 +125,8 @@ type FileMeta struct {
 	Name        string
 	EncodedSize int64
 	Size        int64
+	DataBlocks  int64
+	TotalBlocks int64
 	CreatedAt   time.Time
 	CommitedAt  time.Time
 }
@@ -133,6 +147,8 @@ type IPCBucket struct {
 
 // IPCFileDownload represents an IPC file download and some metadata.
 type IPCFileDownload struct {
+	dataCounters
+
 	BucketName string
 	Name       string
 	Chunks     []Chunk
@@ -179,4 +195,105 @@ type IPCFileChunkUploadV2 struct {
 	Blocks        []FileBlockUpload
 	BucketID      [32]byte
 	FileName      string
+}
+
+// IPCFileUpload contains ipc single file meta information.
+type IPCFileUpload struct {
+	dataCounters
+
+	BucketName string
+	Name       string
+
+	state uploadState
+}
+
+// NewIPCFileUpload creates a new IPCFileUpload.
+func NewIPCFileUpload(bucketName, name string) (*IPCFileUpload, error) {
+	dagRoot, err := NewDAGRoot()
+	if err != nil {
+		return nil, err
+	}
+
+	return &IPCFileUpload{
+		dataCounters: newDataCounters(),
+		state:        uploadState{dagRoot: dagRoot, preCreatedChunks: make(map[int]chunkWithTx)},
+		BucketName:   bucketName,
+		Name:         name,
+	}, nil
+}
+
+type uploadState struct {
+	dagRoot *DAGRoot
+
+	mu               sync.RWMutex
+	preCreatedChunks map[int]chunkWithTx // chunks created in upload pipline but not yet uploaded
+
+	isCommitted     bool
+	chunkCount      int64
+	actualFileSize  int64
+	encodedFileSize int64
+}
+
+// adds a chunk to the pre-created chunks map, updates chunk count and file sizes.
+func (us *uploadState) preCreateChunk(chunk IPCFileChunkUploadV2, tx *types.Transaction) error {
+	us.mu.Lock()
+	us.preCreatedChunks[int(chunk.Index)] = chunkWithTx{chunk: chunk, tx: tx}
+	us.mu.Unlock()
+
+	us.chunkCount++
+	us.actualFileSize += chunk.ActualSize
+	us.encodedFileSize += int64(chunk.ProtoNodeSize)
+
+	return us.dagRoot.AddLink(chunk.ChunkCID, chunk.RawDataSize, chunk.ProtoNodeSize)
+}
+
+// removes a chunk from the pre-created chunks map.
+func (us *uploadState) chunkUploaded(chunk IPCFileChunkUploadV2) {
+	us.mu.Lock()
+	delete(us.preCreatedChunks, int(chunk.Index))
+	us.mu.Unlock()
+}
+
+func (us *uploadState) listPreCreatedChunks() []chunkWithTx {
+	us.mu.RLock()
+	defer us.mu.RUnlock()
+
+	keys := maps.Keys(us.preCreatedChunks)
+	slices.Sort(keys) // sort to preserve order in which they were added
+
+	res := make([]chunkWithTx, 0, len(us.preCreatedChunks))
+	for _, key := range keys {
+		if chunk, exists := us.preCreatedChunks[key]; exists {
+			res = append(res, chunk)
+		}
+	}
+
+	return res
+}
+
+type chunkWithTx struct {
+	chunk IPCFileChunkUploadV2
+	tx    *types.Transaction
+}
+
+// dataCounters tracks the number of chunks, blocks, and bytes processed.
+// TODO: use as values; in places where they are used, use structs as pointers.
+type dataCounters struct {
+	chunksCounter *atomic.Int64
+	blocksCounter *atomic.Int64
+	bytesCounter  *atomic.Int64
+}
+
+// newDataCounters creates a new instance of dataCounters.
+func newDataCounters() dataCounters {
+	return dataCounters{
+		chunksCounter: new(atomic.Int64),
+		blocksCounter: new(atomic.Int64),
+		bytesCounter:  new(atomic.Int64),
+	}
+}
+
+// Stats returns current data counters.
+func (dc dataCounters) Stats() (int64, int64, int64) {
+	return dc.chunksCounter.Load(), dc.blocksCounter.Load(), dc.bytesCounter.Load()
 }

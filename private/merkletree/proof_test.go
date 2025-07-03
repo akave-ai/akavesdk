@@ -50,5 +50,8 @@ func TestMemtreeProof(t *testing.T) {
 	commCid2, err := commcid.DataCommitmentV1ToCID(proof.Root[:])
 	require.NoError(t, err)
 	require.True(t, commCid.Equals(commCid2))
+
+	// Verify the proof with known root CID(rawCommP)
+	proof.Root = [32]byte(rawCommP)
 	require.True(t, merkletree.VerifyMerkleProof(proof, 3))
 }

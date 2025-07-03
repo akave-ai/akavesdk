@@ -5,12 +5,10 @@ package main
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/schollz/progressbar/v3"
 	"github.com/spf13/cobra"
 
 	"github.com/akave-ai/akavesdk/sdk"
@@ -399,7 +397,7 @@ func cmdListFilesIPC(cmd *cobra.Command, args []string) (err error) {
 		return nil
 	}
 	for _, file := range files {
-		cmd.PrintErrf("File: Name=%s, RootCID=%s, EncodedSize=%d, CreatedAt=%s\n", file.Name, file.RootCID, file.EncodedSize, file.CreatedAt)
+		cmd.PrintErrf("File: Name=%s, RootCID=%s, EncodedSize=%d, ActualSize=%d, CreatedAt=%s\n", file.Name, file.RootCID, file.EncodedSize, file.ActualSize, file.CreatedAt)
 	}
 
 	return nil
@@ -492,26 +490,34 @@ func cmdFileUploadIPC(cmd *cobra.Command, args []string) (err error) {
 		return err
 	}
 
-	if err := ipc.CreateFileUpload(ctx, bucketName, fileName); err != nil {
+	fileUpload, err := ipc.CreateFileUpload(ctx, bucketName, fileName)
+	if err != nil {
 		return fmt.Errorf("failed to create file upload: %w", err)
 	}
 
-	bar := progressbar.DefaultBytes(
-		fi.Size(),
-		"uploading",
-	)
-	r := progressbar.NewReader(file, bar)
+	var size int64
+	if disableErasureCoding {
+		size = fi.Size()
+	} else {
+		size = fi.Size() * 2 // TODO: not sure that it is correct to just multiply original size by 2
+	}
 
-	fileMeta, err := ipc.Upload(ctx, bucketName, fileName, &r)
+	bar, done := trackProgress(cmd, size, fileUpload, "Uploading")
+
+	fileMeta, err := ipc.Upload(ctx, fileUpload, file)
 	if err != nil {
 		return fmt.Errorf("failed to upload file: %w", err)
 	}
-	// Finish progress bar: fill the bar as in this point it's guaranteed that the file has been uploaded
+
+	close(done)
 	if err := bar.Finish(); err != nil {
 		return fmt.Errorf("failed to finish progress bar: %w", err)
 	}
+	if err := bar.Clear(); err != nil {
+		return fmt.Errorf("failed to clear progress bar: %w", err)
+	}
 
-	cmd.PrintErrf("File uploaded successfully: Name=%s, RootCID=%s, EncodedSize=%d\n", fileName, fileMeta.RootCID, fileMeta.EncodedSize)
+	cmd.PrintErrf("File uploaded successfully: Name=%s, RootCID=%s, ActualSize=%d, EncodedSize=%d\n", fileName, fileMeta.RootCID, fileMeta.Size, fileMeta.EncodedSize)
 
 	return nil
 }
@@ -571,22 +577,24 @@ func cmdFileDownloadIPC(cmd *cobra.Command, args []string) (err error) {
 	if err != nil {
 		return fmt.Errorf("failed to get file info: %w", err)
 	}
-	bar := progressbar.DefaultBytes(
-		info.EncodedSize,
-		"downloading",
-	)
 
-	if err := ipc.Download(ctx, fileDownload, io.MultiWriter(bar, outFile)); err != nil {
+	bar, done := trackProgress(cmd, info.EncodedSize, fileDownload, "Downloading")
+
+	if err := ipc.Download(ctx, fileDownload, outFile); err != nil {
 		return fmt.Errorf("failed to download file: %w", err)
 	}
 
-	writtenBytes := bar.State().CurrentNum
-	// Finish progress bar: fill the bar as in this point it's guaranteed that the file has been downloaded
+	close(done)
 	if err := bar.Finish(); err != nil {
 		return fmt.Errorf("failed to finish progress bar: %w", err)
 	}
+	if err := bar.Clear(); err != nil {
+		return fmt.Errorf("failed to clear progress bar: %w", err)
+	}
 
-	cmd.PrintErrf("File downloaded successfully: Name=%s, Path=%s, Size=%d\n", fileName, filepath.Join(destPath, fileName), writtenBytes)
+	chunks, blocks, finalBytes := fileDownload.Stats()
+	cmd.PrintErrf("File downloaded successfully: Name=%s, Path=%s, Size=%d, Chunks=%d, Blocks=%d\n",
+		fileName, filepath.Join(destPath, fileName), finalBytes, chunks, blocks)
 	return nil
 }
 

@@ -7,11 +7,13 @@ package ipctest
 import (
 	"context"
 	"crypto/ecdsa"
+	"errors"
 	"math/big"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/txpool"
@@ -110,10 +112,54 @@ func deposit(ctx context.Context, client *ethclient.Client, signer types.Signer,
 		return err
 	}
 
-	return client.SendTransaction(ctx, signedTx)
+	if err := client.SendTransaction(ctx, signedTx); err != nil {
+		return err
+	}
+
+	return waitForTx(ctx, client, signedTx.Hash())
 }
 
 // ToWei convert amount into *big.Int.
 func ToWei(amount int64) *big.Int {
 	return new(big.Int).Mul(big.NewInt(amount), big.NewInt(1e18))
+}
+
+// waitForTx block execution until transaction receipt is received or context is cancelled.
+func waitForTx(ctx context.Context, ethClient *ethclient.Client, hash common.Hash) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+
+	receipt, err := ethClient.TransactionReceipt(ctx, hash)
+	if err == nil {
+		if receipt.Status == 1 {
+			return nil
+		}
+
+		return errs.New("transaction failed")
+	}
+	if !errors.Is(err, ethereum.NotFound) {
+		return err
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			receipt, err := ethClient.TransactionReceipt(ctx, hash)
+			if err == nil {
+				if receipt.Status == 1 {
+					return nil
+				}
+
+				return errs.New("transaction failed")
+			}
+			if !errors.Is(err, ethereum.NotFound) {
+				return err
+			}
+		}
+	}
 }

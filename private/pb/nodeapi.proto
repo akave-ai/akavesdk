@@ -74,12 +74,16 @@ service StreamAPI {
 message StreamFileUploadCreateRequest {
   string bucket_name = 1;
   string file_name = 2;
+  int64 data_blocks = 3;
+  int64 total_blocks = 4;
 }
 message StreamFileUploadCreateResponse {
   string bucket_name = 1;
   string file_name = 2;
   string stream_id = 3;
-  google.protobuf.Timestamp created_at = 4;
+  int64 data_blocks = 4;
+  int64 total_blocks = 5;
+  google.protobuf.Timestamp created_at = 6;
 }
 
 message Chunk {
@@ -122,6 +126,8 @@ message StreamFileUploadCommitRequest {
   string stream_id = 1;
   string root_cid = 2;
   int64 chunk_count = 3;
+  int64 size = 4;
+  
 }
 message StreamFileUploadCommitResponse {
   string stream_id = 1;
@@ -140,7 +146,9 @@ message StreamFileDownloadCreateRequest {
 message StreamFileDownloadCreateResponse {
   string bucket_name = 1;
   string stream_id = 2;
-  repeated Chunk chunks = 3;
+  int64 data_blocks = 3;
+  int64 total_blocks = 4;
+  repeated Chunk chunks = 5;
 
   message Chunk {
     string cid = 1;
@@ -210,8 +218,10 @@ message File {
   string name = 3;
   int64 encoded_size = 4;
   int64 size = 5;
-  google.protobuf.Timestamp created_at = 6;
-  google.protobuf.Timestamp commited_at = 7;
+  int64 data_blocks = 6;
+  int64 total_blocks = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp commited_at = 9;
 }
 
 message StreamFileListResponse {
@@ -239,8 +249,10 @@ message StreamFileViewResponse {
   string root_cid = 4;
   int64 encoded_size = 5;
   int64 size = 6;
-  google.protobuf.Timestamp created_at = 7;
-  google.protobuf.Timestamp committed_at = 8;
+  int64 data_blocks = 7;
+  int64 total_blocks = 8;
+  google.protobuf.Timestamp created_at = 9;
+  google.protobuf.Timestamp committed_at = 10;
 }
 
 message StreamFileDeleteRequest {

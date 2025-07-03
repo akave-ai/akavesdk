@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"sync/atomic"
 
 	"github.com/ipfs/go-cid"
 	"golang.org/x/exp/maps"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/akave-ai/akavesdk/private/cryptoutils"
 	"github.com/akave-ai/akavesdk/private/encryption"
+	"github.com/akave-ai/akavesdk/private/erasurecode"
 	"github.com/akave-ai/akavesdk/private/pb"
 	"github.com/akave-ai/akavesdk/private/spclient"
 )
@@ -27,7 +29,7 @@ type StreamingAPI struct {
 	client            pb.StreamAPIClient
 	conn              *grpc.ClientConn
 	spClient          *spclient.SPClient
-	erasureCode       *ErasureCode
+	uploadEC          *erasurecode.ErasureCode
 	maxConcurrency    int
 	blockPartSize     int64
 	useConnectionPool bool
@@ -59,8 +61,10 @@ func (sdk *StreamingAPI) FileInfo(ctx context.Context, bucketName string, fileNa
 		RootCID:     res.RootCid,
 		BucketName:  res.BucketName,
 		Name:        res.FileName,
-		EncodedSize: res.EncodedSize,
 		Size:        res.Size,
+		EncodedSize: res.EncodedSize,
+		DataBlocks:  res.DataBlocks,
+		TotalBlocks: res.TotalBlocks,
 		CreatedAt:   res.CreatedAt.AsTime(),
 		CommitedAt:  res.CommittedAt.AsTime(),
 	}, nil
@@ -121,9 +125,17 @@ func (sdk *StreamingAPI) CreateFileUpload(ctx context.Context, bucketName string
 		return FileUpload{}, errSDK.Errorf("empty bucket name")
 	}
 
+	var dataBlocks, totalBlocks int64
+	if sdk.uploadEC != nil {
+		dataBlocks = int64(sdk.uploadEC.DataBlocks)
+		totalBlocks = int64(sdk.uploadEC.DataBlocks + sdk.uploadEC.ParityBlocks)
+	}
+
 	req := &pb.StreamFileUploadCreateRequest{
-		BucketName: bucketName,
-		FileName:   fileName,
+		BucketName:  bucketName,
+		FileName:    fileName,
+		DataBlocks:  dataBlocks,
+		TotalBlocks: totalBlocks,
 	}
 
 	res, err := sdk.client.FileUploadCreate(ctx, req)
@@ -132,10 +144,13 @@ func (sdk *StreamingAPI) CreateFileUpload(ctx context.Context, bucketName string
 	}
 
 	return FileUpload{
-		BucketName: res.BucketName,
-		Name:       res.FileName,
-		StreamID:   res.StreamId,
-		CreatedAt:  res.CreatedAt.AsTime(),
+		BucketName:   res.BucketName,
+		Name:         res.FileName,
+		StreamID:     res.StreamId,
+		DataBlocks:   res.DataBlocks,
+		TotalBlocks:  res.TotalBlocks,
+		CreatedAt:    res.CreatedAt.AsTime(),
+		dataCounters: newDataCounters(),
 	}, nil
 }
 
@@ -153,8 +168,8 @@ func (sdk *StreamingAPI) Upload(ctx context.Context, upload FileUpload, reader i
 	}
 
 	bufferSize := sdk.maxBlocksInChunk * int(BlockSize)
-	if sdk.erasureCode != nil { // erasure coding enabled
-		bufferSize = sdk.erasureCode.DataBlocks * int(BlockSize)
+	if sdk.uploadEC != nil { // erasure coding enabled
+		bufferSize = sdk.uploadEC.DataBlocks * int(BlockSize)
 	}
 	bufferSize -= chunkEncOverhead
 
@@ -165,6 +180,7 @@ func (sdk *StreamingAPI) Upload(ctx context.Context, upload FileUpload, reader i
 
 	g, chunkCtx := errgroup.WithContext(ctx)
 	fileUploadChunksCh := make(chan FileChunkUpload, sdk.chunkBuffer)
+	var totalSize atomic.Int64
 
 	// Start goroutine for reading data and creating chunks
 	g.Go(func() error {
@@ -198,6 +214,7 @@ func (sdk *StreamingAPI) Upload(ctx context.Context, upload FileUpload, reader i
 					return chunkCtx.Err()
 				case fileUploadChunksCh <- chunkUpload:
 					index++
+					totalSize.Add(int64(n))
 				}
 			}
 
@@ -210,27 +227,29 @@ func (sdk *StreamingAPI) Upload(ctx context.Context, upload FileUpload, reader i
 
 	var chunkCount int64
 
-uploadLoop:
-	for {
-		select {
-		case <-chunkCtx.Done():
-			break uploadLoop
-		case chunkUpload, ok := <-fileUploadChunksCh:
-			if !ok {
-				break uploadLoop
-			}
+	// Start goroutine for processing uploaded chunks
+	g.Go(func() error {
+		for {
+			select {
+			case <-chunkCtx.Done():
+				return chunkCtx.Err()
+			case chunkUpload, ok := <-fileUploadChunksCh:
+				if !ok {
+					return nil
+				}
 
-			if err := dagRoot.AddLink(chunkUpload.ChunkCID, chunkUpload.RawDataSize, chunkUpload.ProtoNodeSize); err != nil {
-				return FileMeta{}, errSDK.Wrap(err)
-			}
+				if err := dagRoot.AddLink(chunkUpload.ChunkCID, chunkUpload.RawDataSize, chunkUpload.ProtoNodeSize); err != nil {
+					return errSDK.Wrap(err)
+				}
 
-			if err := sdk.uploadChunk(chunkCtx, chunkUpload); err != nil {
-				return FileMeta{}, errSDK.Wrap(err)
+				if err := sdk.uploadChunk(chunkCtx, chunkUpload, upload.blocksCounter, upload.bytesCounter); err != nil {
+					return errSDK.Wrap(err)
+				}
+				upload.chunksCounter.Add(1)
+				chunkCount++
 			}
-
-			chunkCount++
 		}
-	}
+	})
 
 	if err := g.Wait(); err != nil {
 		return FileMeta{}, errSDK.Wrap(err)
@@ -242,7 +261,7 @@ uploadLoop:
 	}
 
 	// chunkCtx is already cancelled at this point, so parent ctx is used
-	fileMeta, err := sdk.commitStream(ctx, upload, rootCID.String(), chunkCount)
+	fileMeta, err := sdk.commitStream(ctx, upload, rootCID.String(), chunkCount, totalSize.Load())
 	if err != nil {
 		return FileMeta{}, errSDK.Wrap(err)
 	}
@@ -275,10 +294,12 @@ func (sdk *StreamingAPI) CreateFileDownload(ctx context.Context, bucketName, fil
 	}
 
 	return FileDownload{
-		StreamID:   res.StreamId,
-		BucketName: res.BucketName,
-		Name:       fileName,
-		Chunks:     chunks,
+		StreamID:    res.StreamId,
+		BucketName:  res.BucketName,
+		Name:        fileName,
+		DataBlocks:  res.DataBlocks,
+		TotalBlocks: res.TotalBlocks,
+		Chunks:      chunks,
 	}, nil
 }
 
@@ -307,10 +328,12 @@ func (sdk *StreamingAPI) CreateRangeFileDownload(ctx context.Context, bucketName
 	}
 
 	return FileDownload{
-		StreamID:   res.StreamId,
-		BucketName: res.BucketName,
-		Name:       fileName,
-		Chunks:     chunks,
+		StreamID:    res.StreamId,
+		BucketName:  res.BucketName,
+		Name:        fileName,
+		DataBlocks:  res.DataBlocks,
+		TotalBlocks: res.TotalBlocks,
+		Chunks:      chunks,
 	}, nil
 }
 
@@ -321,6 +344,14 @@ func (sdk *StreamingAPI) Download(ctx context.Context, fileDownload FileDownload
 	fileEncKey, err := encryptionKey(sdk.encryptionKey, fileDownload.BucketName, fileDownload.Name)
 	if err != nil {
 		return errSDK.Wrap(err)
+	}
+
+	var downloadEC *erasurecode.ErasureCode
+	if fileDownload.DataBlocks < fileDownload.TotalBlocks { // erasure coding was applied to a file if data blocks < total blocks
+		downloadEC, err = erasurecode.New(int(fileDownload.DataBlocks), int(fileDownload.TotalBlocks-fileDownload.DataBlocks))
+		if err != nil {
+			return errSDK.Wrap(err)
+		}
 	}
 
 	for _, chunk := range fileDownload.Chunks {
@@ -335,7 +366,7 @@ func (sdk *StreamingAPI) Download(ctx context.Context, fileDownload FileDownload
 			return err
 		}
 
-		if err := sdk.downloadChunkBlocks(ctx, fileDownload.StreamID, chunkDownload, fileEncKey, writer); err != nil {
+		if err := sdk.downloadChunkBlocks(ctx, fileDownload.StreamID, chunkDownload, fileEncKey, downloadEC, writer); err != nil {
 			return err
 		}
 	}
@@ -353,6 +384,14 @@ func (sdk *StreamingAPI) DownloadV2(ctx context.Context, fileDownload FileDownlo
 		return errSDK.Wrap(err)
 	}
 
+	var downloadEC *erasurecode.ErasureCode
+	if fileDownload.DataBlocks < fileDownload.TotalBlocks { // erasure coding was applied to a file if data blocks < total blocks
+		downloadEC, err = erasurecode.New(int(fileDownload.DataBlocks), int(fileDownload.TotalBlocks-fileDownload.DataBlocks))
+		if err != nil {
+			return errSDK.Wrap(err)
+		}
+	}
+
 	for _, chunk := range fileDownload.Chunks {
 		select {
 		case <-ctx.Done():
@@ -365,7 +404,7 @@ func (sdk *StreamingAPI) DownloadV2(ctx context.Context, fileDownload FileDownlo
 			return err
 		}
 
-		if err := sdk.downloadChunkBlocks(ctx, fileDownload.StreamID, chunkDownload, fileEncKey, writer); err != nil {
+		if err := sdk.downloadChunkBlocks(ctx, fileDownload.StreamID, chunkDownload, fileEncKey, downloadEC, writer); err != nil {
 			return err
 		}
 	}
@@ -378,11 +417,16 @@ func (sdk *StreamingAPI) DownloadV2(ctx context.Context, fileDownload FileDownlo
 func (sdk *StreamingAPI) DownloadRandom(ctx context.Context, fileDownload FileDownload, writer io.Writer) (err error) {
 	defer mon.Task()(&ctx, fileDownload)(&err)
 
-	if sdk.erasureCode == nil {
-		return errSDK.Errorf("erasure coding is not enabled")
+	if fileDownload.DataBlocks == fileDownload.TotalBlocks {
+		return errSDK.Errorf("file is not erasure coded")
 	}
 
 	fileEncKey, err := encryptionKey(sdk.encryptionKey, fileDownload.BucketName, fileDownload.Name)
+	if err != nil {
+		return errSDK.Wrap(err)
+	}
+
+	downloadEC, err := erasurecode.New(int(fileDownload.DataBlocks), int(fileDownload.TotalBlocks-fileDownload.DataBlocks))
 	if err != nil {
 		return errSDK.Wrap(err)
 	}
@@ -399,7 +443,7 @@ func (sdk *StreamingAPI) DownloadRandom(ctx context.Context, fileDownload FileDo
 			return err
 		}
 
-		if err := sdk.downloadRandomChunkBlocks(ctx, fileDownload.StreamID, chunkDownload, fileEncKey, writer); err != nil {
+		if err := sdk.downloadRandomChunkBlocks(ctx, fileDownload.StreamID, chunkDownload, fileEncKey, downloadEC, writer); err != nil {
 			return err
 		}
 	}
@@ -428,15 +472,14 @@ func (sdk *StreamingAPI) createChunkUpload(ctx context.Context, fileUpload FileU
 		}
 	}
 
-	size := int64(len(data))
 	blockSize := BlockSize.ToInt64()
-	if sdk.erasureCode != nil { // erasure coding is enabled
-		data, err = sdk.erasureCode.Encode(data)
+	if sdk.uploadEC != nil { // erasure coding is enabled
+		data, err = sdk.uploadEC.Encode(data)
 		if err != nil {
 			return FileChunkUpload{}, errSDK.Wrap(err)
 		}
 		// equivalent to notion of shard size in erasure coding terminology
-		blockSize = int64(len(data) / (sdk.erasureCode.DataBlocks + sdk.erasureCode.ParityBlocks))
+		blockSize = int64(len(data) / (sdk.uploadEC.DataBlocks + sdk.uploadEC.ParityBlocks))
 	}
 
 	chunkDAG, err := BuildDAG(ctx, bytes.NewBuffer(data), blockSize, nil)
@@ -444,7 +487,7 @@ func (sdk *StreamingAPI) createChunkUpload(ctx context.Context, fileUpload FileU
 		return FileChunkUpload{}, errSDK.Wrap(err)
 	}
 
-	protoChunk := toProtoChunk(fileUpload.StreamID, chunkDAG.CID.String(), index, size, chunkDAG.Blocks)
+	protoChunk := toProtoChunk(fileUpload.StreamID, chunkDAG.CID.String(), index, chunkDAG.Blocks)
 	req := &pb.StreamFileUploadChunkCreateRequest{Chunk: protoChunk}
 
 	res, err := sdk.client.FileUploadChunkCreate(ctx, req)
@@ -468,14 +511,13 @@ func (sdk *StreamingAPI) createChunkUpload(ctx context.Context, fileUpload FileU
 		StreamID:      fileUpload.StreamID,
 		Index:         index,
 		ChunkCID:      chunkDAG.CID,
-		ActualSize:    size,
 		RawDataSize:   chunkDAG.RawDataSize,
 		ProtoNodeSize: chunkDAG.ProtoNodeSize,
 		Blocks:        chunkDAG.Blocks,
 	}, nil
 }
 
-func (sdk *StreamingAPI) uploadChunk(ctx context.Context, fileChunkUpload FileChunkUpload) (err error) {
+func (sdk *StreamingAPI) uploadChunk(ctx context.Context, fileChunkUpload FileChunkUpload, blockCount, bytesCount *atomic.Int64) (err error) {
 	defer mon.Task()(&ctx, fileChunkUpload)(&err)
 
 	g, ctx := errgroup.WithContext(ctx)
@@ -492,7 +534,6 @@ func (sdk *StreamingAPI) uploadChunk(ctx context.Context, fileChunkUpload FileCh
 		fileChunkUpload.StreamID,
 		fileChunkUpload.ChunkCID.String(),
 		fileChunkUpload.Index,
-		fileChunkUpload.ActualSize,
 		fileChunkUpload.Blocks,
 	)
 	for i, block := range fileChunkUpload.Blocks {
@@ -535,6 +576,8 @@ func (sdk *StreamingAPI) uploadChunk(ctx context.Context, fileChunkUpload FileCh
 			}
 
 			_, closeErr := sender.CloseAndRecv()
+			blockCount.Add(1)
+			bytesCount.Add(int64(len(block.Data)))
 			return closeErr
 		})
 	}
@@ -627,6 +670,7 @@ func (sdk *StreamingAPI) downloadChunkBlocks(
 	streamID string,
 	chunkDownload FileChunkDownload,
 	fileEncryptionKey []byte,
+	downloadEC *erasurecode.ErasureCode,
 	writer io.Writer,
 ) (err error) {
 
@@ -685,8 +729,8 @@ func (sdk *StreamingAPI) downloadChunkBlocks(
 	}
 
 	var data []byte
-	if sdk.erasureCode != nil { // erasure coding is enabled
-		data, err = sdk.erasureCode.ExtractData(blocks)
+	if downloadEC != nil { // erasure coding is enabled
+		data, err = downloadEC.ExtractData(blocks, int(chunkDownload.Size))
 		if err != nil {
 			return errSDK.Wrap(err)
 		}
@@ -714,6 +758,7 @@ func (sdk *StreamingAPI) downloadRandomChunkBlocks(
 	streamID string,
 	chunkDownload FileChunkDownload,
 	fileEncryptionKey []byte,
+	downloadEC *erasurecode.ErasureCode,
 	writer io.Writer,
 ) (err error) {
 
@@ -745,7 +790,7 @@ func (sdk *StreamingAPI) downloadRandomChunkBlocks(
 	cryptoutils.Shuffle(blockIndexes)
 
 	// take only half of the blocks
-	for _, i := range blockIndexes[:sdk.erasureCode.DataBlocks] {
+	for _, i := range blockIndexes[:downloadEC.DataBlocks] {
 		delete(blocksMap, i)
 	}
 
@@ -784,8 +829,8 @@ func (sdk *StreamingAPI) downloadRandomChunkBlocks(
 	}
 
 	var data []byte
-	if sdk.erasureCode != nil { // erasure coding is enabled
-		data, err = sdk.erasureCode.ExtractData(blocks)
+	if downloadEC != nil { // erasure coding is enabled
+		data, err = downloadEC.ExtractData(blocks, int(chunkDownload.Size))
 		if err != nil {
 			return errSDK.Wrap(err)
 		}
@@ -807,13 +852,14 @@ func (sdk *StreamingAPI) downloadRandomChunkBlocks(
 	return nil
 }
 
-func (sdk *StreamingAPI) commitStream(ctx context.Context, upload FileUpload, rootCID string, chunkCount int64) (_ FileMeta, err error) {
+func (sdk *StreamingAPI) commitStream(ctx context.Context, upload FileUpload, rootCID string, chunkCount, fileSize int64) (_ FileMeta, err error) {
 	defer mon.Task()(&ctx, upload, rootCID, chunkCount)(&err)
 
 	res, err := sdk.client.FileUploadCommit(ctx, &pb.StreamFileUploadCommitRequest{
 		StreamId:   upload.StreamID,
 		RootCid:    rootCID,
 		ChunkCount: chunkCount,
+		Size:       fileSize,
 	})
 	if err != nil {
 		return FileMeta{}, errSDK.Wrap(err)
@@ -826,6 +872,8 @@ func (sdk *StreamingAPI) commitStream(ctx context.Context, upload FileUpload, ro
 		Name:        res.FileName,
 		EncodedSize: res.EncodedSize,
 		Size:        res.Size,
+		DataBlocks:  upload.DataBlocks,
+		TotalBlocks: upload.TotalBlocks,
 		CreatedAt:   upload.CreatedAt,
 		CommitedAt:  res.CommittedAt.AsTime(),
 	}, nil
@@ -928,7 +976,7 @@ func (sdk *StreamingAPI) fetchBlockData(
 	return buf.Bytes(), nil
 }
 
-func toProtoChunk(streamID, cid string, index, size int64, blocks []FileBlockUpload) *pb.Chunk {
+func toProtoChunk(streamID, cid string, index int64, blocks []FileBlockUpload) *pb.Chunk {
 	pbBlocks := make([]*pb.Chunk_Block, len(blocks))
 	for i, block := range blocks {
 		pbBlocks[i] = &pb.Chunk_Block{
@@ -940,7 +988,7 @@ func toProtoChunk(streamID, cid string, index, size int64, blocks []FileBlockUpl
 		StreamId: streamID,
 		Cid:      cid,
 		Index:    index,
-		Size:     size,
+		Size:     int64(0), // will be removed soon
 		Blocks:   pbBlocks,
 	}
 }
@@ -952,6 +1000,8 @@ func toFileMeta(protoFile *pb.File, bucketName string) FileMeta {
 		BucketName:  bucketName,
 		Name:        protoFile.Name,
 		EncodedSize: protoFile.EncodedSize,
+		DataBlocks:  protoFile.DataBlocks,
+		TotalBlocks: protoFile.TotalBlocks,
 		Size:        protoFile.Size,
 		CreatedAt:   protoFile.CreatedAt.AsTime(),
 		CommitedAt:  protoFile.CommitedAt.AsTime(),

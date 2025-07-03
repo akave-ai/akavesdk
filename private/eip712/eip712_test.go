@@ -25,8 +25,12 @@ func TestSignature(t *testing.T) {
 	require.NoError(t, err)
 
 	address := crypto.PubkeyToAddress(privateKey.PublicKey)
-	var blockCid [32]byte
+	var blockCid, nodeID32, bucketId32 [32]byte
 	copy(blockCid[:], "blockCID1")
+	nodeID := []byte("node id")
+	copy(nodeID32[:], nodeID)
+	bucketId := []byte("bucket id")
+	copy(bucketId32[:], bucketId)
 
 	dataTypes := map[string][]eip712.TypedData{
 		"StorageData": {
@@ -34,8 +38,10 @@ func TestSignature(t *testing.T) {
 			{Name: "blockCID", Type: "bytes32"},
 			{Name: "chunkIndex", Type: "uint256"},
 			{Name: "blockIndex", Type: "uint8"},
-			{Name: "nodeId", Type: "bytes"},
+			{Name: "nodeId", Type: "bytes32"},
 			{Name: "nonce", Type: "uint256"},
+			{Name: "deadline", Type: "uint256"},
+			{Name: "bucketId", Type: "bytes32"},
 		},
 	}
 
@@ -44,8 +50,10 @@ func TestSignature(t *testing.T) {
 		BlockCID:   blockCid,
 		ChunkIndex: big.NewInt(0),
 		BlockIndex: 0,
-		NodeID:     []byte("node id"),
+		NodeID:     nodeID32,
 		Nonce:      big.NewInt(1234567890),
+		Deadline:   big.NewInt(12345),
+		BucketID:   bucketId32,
 	}
 
 	domain := eip712.Domain{
@@ -62,6 +70,8 @@ func TestSignature(t *testing.T) {
 		"blockIndex": data.BlockIndex,
 		"nodeId":     data.NodeID,
 		"nonce":      data.Nonce,
+		"deadline":   data.Deadline,
+		"bucketId":   data.BucketID,
 	}
 
 	sign, err := eip712.Sign(privateKey, domain, dataMessage, dataTypes)

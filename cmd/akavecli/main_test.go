@@ -420,10 +420,11 @@ func TestIPCListFilesCommand(t *testing.T) {
 
 	testCases := []testCase{
 		{
-			name:           "List files successfully",
-			args:           []string{"ipc", "file", "list", "--private-key", privateKey, bucketName, "--node-address", nodeAddress},
-			expectedOutput: []string{fmt.Sprintf("File: Name=%s", filepath.Base(file1)), fmt.Sprintf("File: Name=%s", filepath.Base(file2))},
-			expectError:    false,
+			name: "List files successfully",
+			args: []string{"ipc", "file", "list", "--private-key", privateKey, bucketName, "--node-address", nodeAddress},
+			expectedOutput: []string{fmt.Sprintf("File: Name=%s", filepath.Base(file1)), fmt.Sprintf("File: Name=%s", filepath.Base(file2)),
+				fmt.Sprintf("ActualSize=%d", 2*memory.MB.ToInt64()), fmt.Sprint("EncodedSize=4002090")},
+			expectError: false,
 		},
 		{
 			name:           "List files for non-existent bucket",
@@ -697,10 +698,11 @@ func TestIPCFileUploadCommand(t *testing.T) {
 
 	testCases := []testCase{
 		{
-			name:           "File upload successfully",
-			args:           []string{"ipc", "file", "upload", "--private-key", privateKey, bucketName, file, "--node-address", nodeAddress, "--disable-erasure-coding"},
-			expectedOutput: []string{fmt.Sprintf("File uploaded successfully: Name=%s", filepath.Base(file))},
-			expectError:    false,
+			name: "File upload successfully",
+			args: []string{"ipc", "file", "upload", "--private-key", privateKey, bucketName, file, "--node-address", nodeAddress, "--disable-erasure-coding"},
+			expectedOutput: []string{fmt.Sprintf("File uploaded successfully: Name=%s", filepath.Base(file)), fmt.Sprintf("ActualSize=%d", 2*memory.MB.ToInt64()),
+				fmt.Sprint("EncodedSize=2000136")},
+			expectError: false,
 		},
 		{
 			name:           "File upload successfully with erasure coding",

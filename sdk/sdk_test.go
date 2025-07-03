@@ -198,7 +198,7 @@ func TestUploadDownloadStreamingSmallFiles(t *testing.T) {
 		{"1 MiB", 1 * memory.MiB.ToInt64()},
 	}
 
-	t.Run("no encyption", func(t *testing.T) {
+	t.Run("no encryption", func(t *testing.T) {
 		akave, err := sdk.New(PickNodeRPCAddress(t), maxConcurrency, blockPartSize.ToInt64(), true)
 		require.NoError(t, err)
 		t.Cleanup(func() {
@@ -208,13 +208,13 @@ func TestUploadDownloadStreamingSmallFiles(t *testing.T) {
 		for _, tc := range tests {
 			t.Run(tc.name, func(t *testing.T) {
 				data := testrand.BytesD(t, 2024, tc.fileSize)
-				testUploadDownloadStreamingAPI(t, akave, data)
-				testUploadDownloadStreamingAPIV2(t, akave, data)
+				testUploadDownloadStreamingAPI(t, akave, data, 0, 0)
+				testUploadDownloadStreamingAPIV2(t, akave, data, 0, 0)
 			})
 		}
 	})
 
-	t.Run("with encyption", func(t *testing.T) {
+	t.Run("with encryption", func(t *testing.T) {
 		akave, err := sdk.New(PickNodeRPCAddress(t), maxConcurrency, blockPartSize.ToInt64(), true, sdk.WithEncryptionKey([]byte(secretKey)))
 		require.NoError(t, err)
 		t.Cleanup(func() {
@@ -224,8 +224,8 @@ func TestUploadDownloadStreamingSmallFiles(t *testing.T) {
 		for _, tc := range tests {
 			t.Run(tc.name, func(t *testing.T) {
 				data := testrand.BytesD(t, 2024, tc.fileSize)
-				testUploadDownloadStreamingAPI(t, akave, data)
-				testUploadDownloadStreamingAPIV2(t, akave, data)
+				testUploadDownloadStreamingAPI(t, akave, data, 0, 0)
+				testUploadDownloadStreamingAPIV2(t, akave, data, 0, 0)
 			})
 		}
 	})
@@ -240,8 +240,8 @@ func TestUploadDownloadStreamingSmallFiles(t *testing.T) {
 		for _, tc := range tests {
 			t.Run(tc.name, func(t *testing.T) {
 				data := testrand.BytesD(t, 2024, tc.fileSize)
-				testUploadDownloadStreamingAPI(t, akave, data)
-				testUploadDownloadStreamingAPIV2(t, akave, data)
+				testUploadDownloadStreamingAPI(t, akave, data, 16, 32)
+				testUploadDownloadStreamingAPIV2(t, akave, data, 16, 32)
 			})
 		}
 	})
@@ -258,8 +258,8 @@ func TestUploadDownloadStreamingSmallFiles(t *testing.T) {
 		for _, tc := range tests {
 			t.Run(tc.name, func(t *testing.T) {
 				data := testrand.BytesD(t, 2024, tc.fileSize)
-				testUploadDownloadStreamingAPI(t, akave, data)
-				testUploadDownloadStreamingAPIV2(t, akave, data)
+				testUploadDownloadStreamingAPI(t, akave, data, 16, 32)
+				testUploadDownloadStreamingAPIV2(t, akave, data, 16, 32)
 			})
 		}
 	})
@@ -331,7 +331,7 @@ func TestUploadDownloadStreaming(t *testing.T) {
 		for _, tc := range tests {
 			t.Run(tc.name, func(t *testing.T) {
 				data := testrand.BytesD(t, 2024, tc.fileSize*memory.MB.ToInt64())
-				testUploadDownloadStreamingAPI(t, akave, data)
+				testUploadDownloadStreamingAPI(t, akave, data, 0, 0)
 			})
 		}
 	})
@@ -349,7 +349,7 @@ func TestUploadDownloadStreaming(t *testing.T) {
 					t.Skip("skipping test because of large file size")
 				}
 				data := testrand.BytesD(t, 2024, tc.fileSize*memory.MB.ToInt64())
-				testUploadDownloadStreamingAPI(t, akave, data)
+				testUploadDownloadStreamingAPI(t, akave, data, 16, 32)
 			})
 		}
 	})
@@ -369,8 +369,8 @@ func TestUploadDownloadStreaming(t *testing.T) {
 					t.Skip("skipping test because of large file size")
 				}
 				data := testrand.BytesD(t, 2024, tc.fileSize*memory.MB.ToInt64())
-				testUploadDownloadStreamingAPI(t, akave, data)
-				testUploadDownloadStreamingAPIV2(t, akave, data)
+				testUploadDownloadStreamingAPI(t, akave, data, 16, 32)
+				testUploadDownloadStreamingAPIV2(t, akave, data, 16, 32)
 			})
 		}
 	})
@@ -427,7 +427,7 @@ func TestUploadDownloadStreamingSameBlocks(t *testing.T) {
 	})
 
 	data := make([]byte, 10*memory.MB.ToInt64())
-	testUploadDownloadStreamingAPI(t, akave, data)
+	testUploadDownloadStreamingAPI(t, akave, data, 0, 0)
 }
 
 // Greater than block size.
@@ -451,7 +451,7 @@ func TestUploadDownloadStreamingWithEncryption(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			data := testrand.BytesD(t, 2024, tc.fileSize*memory.MB.ToInt64())
-			testUploadDownloadStreamingAPI(t, akave, data)
+			testUploadDownloadStreamingAPI(t, akave, data, 0, 0)
 		})
 	}
 }
@@ -498,7 +498,43 @@ func TestStreamingRangeDownload(t *testing.T) {
 	checkFileContents(t, 10, expected, downloaded.Bytes())
 }
 
-func testUploadDownloadStreamingAPI(t *testing.T, akave *sdk.SDK, data []byte) {
+func TestDownloadECFileWithoutErasureCodingSDK(t *testing.T) {
+	ctx := context.Background()
+
+	akave, err := sdk.New(PickNodeRPCAddress(t), maxConcurrency, blockPartSize.ToInt64(), true, sdk.WithErasureCoding(16))
+	require.NoError(t, err)
+	akaveWithoutEC, err := sdk.New(PickNodeRPCAddress(t), maxConcurrency, blockPartSize.ToInt64(), true)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, akave.Close())
+		require.NoError(t, akaveWithoutEC.Close())
+	})
+
+	// test data
+	data := testrand.BytesD(t, 2024, 10*memory.MB.ToInt64())
+	file := bytes.NewBuffer(data)
+
+	// upload
+	streaming := akave.StreamingAPI()
+	bucketName := randomBucketName(t, 10)
+	_, err = akave.CreateBucket(ctx, bucketName)
+	require.NoError(t, err)
+	fileUpload, err := streaming.CreateFileUpload(ctx, bucketName, "example.txt")
+	require.NoError(t, err)
+	fileMeta, err := streaming.Upload(ctx, fileUpload, file)
+	require.NoError(t, err)
+
+	// download
+	streaming = akaveWithoutEC.StreamingAPI()
+	var downloaded bytes.Buffer
+	fileDownload, err := streaming.CreateFileDownload(ctx, fileMeta.BucketName, fileMeta.Name, "")
+	require.NoError(t, err)
+	require.NoError(t, streaming.Download(ctx, fileDownload, &downloaded))
+
+	checkFileContents(t, 10, data, downloaded.Bytes())
+}
+
+func testUploadDownloadStreamingAPI(t *testing.T, akave *sdk.SDK, data []byte, dataBlocks, totalBlocks int64) {
 	file := bytes.NewBuffer(data)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -528,8 +564,10 @@ func testUploadDownloadStreamingAPI(t *testing.T, akave *sdk.SDK, data []byte) {
 	assert.NotEmpty(t, fileMeta.RootCID)
 	assert.Equal(t, fileUpload.BucketName, fileMeta.BucketName)
 	assert.Equal(t, fileUpload.Name, fileMeta.Name)
+	assert.Equal(t, dataBlocks, fileMeta.DataBlocks)
+	assert.Equal(t, totalBlocks, fileMeta.TotalBlocks)
 	assert.Greater(t, fileMeta.EncodedSize, int64(len(data)))
-	assert.True(t, (fileMeta.Size-int64(len(data)))%sdk.EncryptionOverhead == 0)
+	assert.Equal(t, int64(len(data)), fileMeta.Size)
 	assert.LessOrEqual(t, fileMeta.CreatedAt.UnixNano(), now.UnixNano())
 	assert.GreaterOrEqual(t, fileMeta.CommitedAt.UnixNano(), fileMeta.CreatedAt.UnixNano())
 
@@ -542,9 +580,9 @@ func testUploadDownloadStreamingAPI(t *testing.T, akave *sdk.SDK, data []byte) {
 	require.True(t, len(fileDownload.Chunks) > 0)
 	size := int64(0)
 	for _, chunk := range fileDownload.Chunks {
-		size += chunk.Size
+		size += chunk.EncodedSize
 	}
-	assert.Equal(t, size, fileMeta.Size)
+	assert.Equal(t, size, fileMeta.EncodedSize)
 
 	now = time.Now()
 	err = streaming.Download(ctx, fileDownload, &downloaded)
@@ -555,7 +593,7 @@ func testUploadDownloadStreamingAPI(t *testing.T, akave *sdk.SDK, data []byte) {
 }
 
 // checks version V2 of Download method.
-func testUploadDownloadStreamingAPIV2(t *testing.T, akave *sdk.SDK, data []byte) {
+func testUploadDownloadStreamingAPIV2(t *testing.T, akave *sdk.SDK, data []byte, dataBlocks, totalBlocks int64) {
 	file := bytes.NewBuffer(data)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -585,8 +623,10 @@ func testUploadDownloadStreamingAPIV2(t *testing.T, akave *sdk.SDK, data []byte)
 	assert.NotEmpty(t, fileMeta.RootCID)
 	assert.Equal(t, fileUpload.BucketName, fileMeta.BucketName)
 	assert.Equal(t, fileUpload.Name, fileMeta.Name)
+	assert.Equal(t, dataBlocks, fileMeta.DataBlocks)
+	assert.Equal(t, totalBlocks, fileMeta.TotalBlocks)
 	assert.Greater(t, fileMeta.EncodedSize, int64(len(data)))
-	assert.True(t, (fileMeta.Size-int64(len(data)))%sdk.EncryptionOverhead == 0)
+	assert.Equal(t, int64(len(data)), fileMeta.Size)
 	assert.LessOrEqual(t, fileMeta.CreatedAt.UnixNano(), now.UnixNano())
 	assert.GreaterOrEqual(t, fileMeta.CommitedAt.UnixNano(), fileMeta.CreatedAt.UnixNano())
 
@@ -599,9 +639,9 @@ func testUploadDownloadStreamingAPIV2(t *testing.T, akave *sdk.SDK, data []byte)
 	require.True(t, len(fileDownload.Chunks) > 0)
 	size := int64(0)
 	for _, chunk := range fileDownload.Chunks {
-		size += chunk.Size
+		size += chunk.EncodedSize
 	}
-	assert.Equal(t, size, fileMeta.Size)
+	assert.Equal(t, size, fileMeta.EncodedSize)
 
 	now = time.Now()
 	err = streaming.DownloadV2(ctx, fileDownload, &downloaded)
@@ -642,7 +682,7 @@ func testUploadRandomDownloadStreamingAPI(t *testing.T, akave *sdk.SDK, data []b
 	assert.Equal(t, fileUpload.BucketName, fileMeta.BucketName)
 	assert.Equal(t, fileUpload.Name, fileMeta.Name)
 	assert.Greater(t, fileMeta.EncodedSize, int64(len(data)))
-	assert.True(t, (fileMeta.Size-int64(len(data)))%sdk.EncryptionOverhead == 0)
+	assert.Equal(t, int64(len(data)), fileMeta.Size)
 	assert.LessOrEqual(t, fileMeta.CreatedAt.UnixNano(), now.UnixNano())
 	assert.GreaterOrEqual(t, fileMeta.CommitedAt.UnixNano(), fileMeta.CreatedAt.UnixNano())
 
@@ -655,9 +695,9 @@ func testUploadRandomDownloadStreamingAPI(t *testing.T, akave *sdk.SDK, data []b
 	require.True(t, len(fileDownload.Chunks) > 0)
 	size := int64(0)
 	for _, chunk := range fileDownload.Chunks {
-		size += chunk.Size
+		size += chunk.EncodedSize
 	}
-	assert.Equal(t, size, fileMeta.Size)
+	assert.Equal(t, size, fileMeta.EncodedSize)
 
 	now = time.Now()
 	err = streaming.DownloadRandom(ctx, fileDownload, &downloaded)
@@ -691,6 +731,8 @@ func TestStreamListFiles(t *testing.T) {
 			Name:        fileName,
 			EncodedSize: fm.EncodedSize,
 			Size:        fm.Size,
+			DataBlocks:  0,
+			TotalBlocks: 0,
 			CreatedAt:   fm.CreatedAt,
 			CommitedAt:  fm.CommitedAt,
 		})
@@ -726,7 +768,7 @@ func TestStreamFileInfo(t *testing.T) {
 	ctx := context.Background()
 	bucketName := randomBucketName(t, 10)
 
-	akave, err := sdk.New(PickNodeRPCAddress(t), maxConcurrency, blockPartSize.ToInt64(), true)
+	akave, err := sdk.New(PickNodeRPCAddress(t), maxConcurrency, blockPartSize.ToInt64(), true, sdk.WithErasureCoding(16))
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		require.NoError(t, akave.Close())

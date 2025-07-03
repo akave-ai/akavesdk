@@ -7,7 +7,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/ipfs/boxo/ipld/merkledag"
 	"github.com/ipfs/go-cid"
@@ -15,10 +18,12 @@ import (
 	"github.com/ipfs/go-unixfs/importer/helpers"
 	"github.com/spacemonkeygo/monkit/v3"
 	"github.com/zeebo/errs/v2"
+	"golang.org/x/exp/rand"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/akave-ai/akavesdk/private/encryption"
+	"github.com/akave-ai/akavesdk/private/erasurecode"
 	"github.com/akave-ai/akavesdk/private/ipc"
 	"github.com/akave-ai/akavesdk/private/memory"
 	"github.com/akave-ai/akavesdk/private/pb"
@@ -48,10 +53,10 @@ type Option func(*SDK)
 
 // SDK is the Akave SDK.
 type SDK struct {
-	client               pb.NodeAPIClient
-	conn                 *grpc.ClientConn
-	spClient             *spclient.SPClient
-	streamingErasureCode *ErasureCode
+	client   pb.NodeAPIClient
+	conn     *grpc.ClientConn
+	spClient *spclient.SPClient
+	ec       *erasurecode.ErasureCode
 
 	maxConcurrency            int
 	blockPartSize             int64
@@ -62,6 +67,8 @@ type SDK struct {
 	parityBlocksCount         int  // 0 means no erasure coding applied
 	useMetadataEncryption     bool // encrypts bucket and file names if true
 	chunkBuffer               int
+
+	withRetry withRetry
 }
 
 // WithMetadataEncryption sets the metadata encryption for the SDK.
@@ -106,6 +113,13 @@ func WithChunkBuffer(bufferSize int) func(*SDK) {
 	}
 }
 
+// WithoutRetry disables retries for bucket creation and file upload ops.
+func WithoutRetry() func(*SDK) {
+	return func(s *SDK) {
+		s.withRetry = withRetry{}
+	}
+}
+
 // New returns a new SDK.
 func New(address string, maxConcurrency int, blockPartSize int64, useConnectionPool bool, options ...Option) (*SDK, error) {
 	if blockPartSize <= 0 || blockPartSize > int64(helpers.BlockSizeLimit) {
@@ -125,6 +139,11 @@ func New(address string, maxConcurrency int, blockPartSize int64, useConnectionP
 		useConnectionPool:         useConnectionPool,
 		streamingMaxBlocksInChunk: 32,
 		chunkBuffer:               0, // Default value for chunk buffer
+		// enable retires by default
+		withRetry: withRetry{
+			maxAttempts: 5,
+			baseDelay:   100 * time.Millisecond,
+		},
 	}
 
 	for _, opt := range options {
@@ -145,13 +164,21 @@ func New(address string, maxConcurrency int, blockPartSize int64, useConnectionP
 	}
 
 	if s.parityBlocksCount > 0 { // erasure coding enabled
-		s.streamingErasureCode, err = NewErasureCode(s.streamingMaxBlocksInChunk-s.parityBlocksCount, s.parityBlocksCount)
+		s.ec, err = erasurecode.New(s.streamingMaxBlocksInChunk-s.parityBlocksCount, s.parityBlocksCount)
 		if err != nil {
 			return nil, errSDK.Wrap(err)
 		}
 	}
 
 	s.spClient = spclient.New()
+
+	// sanitize possibly faulty retry params.
+	if s.withRetry.maxAttempts < 0 {
+		s.withRetry.maxAttempts = 0
+	}
+	if s.withRetry.baseDelay <= 100*time.Millisecond {
+		s.withRetry.baseDelay = 100 * time.Millisecond
+	}
 
 	return s, nil
 }
@@ -168,7 +195,7 @@ func (sdk *SDK) StreamingAPI() *StreamingAPI {
 		client:            pb.NewStreamAPIClient(sdk.conn),
 		conn:              sdk.conn,
 		spClient:          sdk.spClient,
-		erasureCode:       sdk.streamingErasureCode,
+		uploadEC:          sdk.ec,
 		maxConcurrency:    sdk.maxConcurrency,
 		blockPartSize:     sdk.blockPartSize,
 		useConnectionPool: sdk.useConnectionPool,
@@ -203,7 +230,7 @@ func (sdk *SDK) IPC() (*IPC, error) {
 		chainID:               ipcClient.ChainID(),
 		storageAddress:        connParams.StorageAddress,
 		conn:                  sdk.conn,
-		erasureCode:           sdk.streamingErasureCode,
+		ec:                    sdk.ec,
 		privateKey:            sdk.privateKey,
 		maxConcurrency:        sdk.maxConcurrency,
 		blockPartSize:         sdk.blockPartSize,
@@ -212,6 +239,7 @@ func (sdk *SDK) IPC() (*IPC, error) {
 		maxBlocksInChunk:      sdk.streamingMaxBlocksInChunk,
 		useMetadataEncryption: sdk.useMetadataEncryption,
 		chunkBuffer:           sdk.chunkBuffer,
+		withRetry:             sdk.withRetry,
 	}, nil
 }
 
@@ -325,4 +353,91 @@ func encryptionKey(parentKey []byte, infoData ...string) ([]byte, error) {
 	}
 
 	return key, nil
+}
+
+// withRetry encapsulates retry parameters.
+type withRetry struct {
+	maxAttempts int
+	baseDelay   time.Duration
+}
+
+// do calls function until success, max retries reached or operation is cancelled with exponential backoff.
+func (retry withRetry) do(ctx context.Context, f func() (bool, error)) error {
+	needsRetry, err := f()
+	if err == nil {
+		return nil
+	}
+	if !needsRetry || retry.maxAttempts == 0 {
+		return err
+	}
+
+	sleep := func(attempt int, base time.Duration) time.Duration {
+		backoff := base * (1 << attempt)
+		jitter := time.Duration(rand.Int63n(int64(base)))
+		return backoff + jitter
+	}
+
+	for attempt := range retry.maxAttempts {
+		delay := sleep(attempt, retry.baseDelay)
+
+		slog.Debug("retrying",
+			slog.Int("attempt", attempt),
+			slog.Duration("delay", delay),
+			slog.Any("err", err),
+		)
+
+		select {
+		case <-ctx.Done():
+			return errs.Combine(fmt.Errorf("retry aborted: %w", ctx.Err()), err)
+		case <-time.After(delay):
+		}
+
+		needsRetry, err = f()
+		if err == nil {
+			return nil
+		}
+		if !needsRetry {
+			return err
+		}
+	}
+
+	return errs.Combine(errors.New("max retries exceeded"), err)
+}
+
+// isRetryableTxError checks if error on sending transaction should be retried.
+func isRetryableTxError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "nonce too low"),
+		strings.Contains(msg, "replacement transaction underpriced"),
+		strings.Contains(msg, "EOF"):
+		return true
+	default:
+		return false
+	}
+}
+
+// skipToPosition skips the reader to the current upload position for resumable uploads.
+func skipToPosition(reader io.Reader, position int64) error {
+	if position > 0 {
+		// Try to seek if the reader supports it
+		if seeker, ok := reader.(io.Seeker); ok {
+			_, err := seeker.Seek(position, io.SeekStart)
+			if err != nil {
+				return fmt.Errorf("failed to seek for resumable upload: %w", err)
+			}
+		} else {
+			// Fallback to copying to discard if seeking is not supported
+			_, err := io.CopyN(io.Discard, reader, position)
+			if err != nil && !errors.Is(err, io.EOF) {
+				return fmt.Errorf("failed to skip bytes for resumable upload: %w", err)
+			}
+		}
+	}
+
+	return nil
 }
