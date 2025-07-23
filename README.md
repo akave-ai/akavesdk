@@ -92,7 +92,7 @@ The Akave Node API provides a set of gRPC services for interacting with the Akav
 | `BucketCreate` | Creates a new bucket. The request sent on a node creates a bucket on this node and shares the fact of creation with all other nodes in the network. |
 | `BucketView`   | Retrieves details of a specific bucket.                                                                                                             |
 | `BucketList`   | Lists all buckets in the network.                                                                                                                   |
-| `BucketDelete` | Deletes a specific bucket. Fact of deletion is shared among all nodes in network. For now, only *soft delete* is implemented.                       |
+|| `BucketDelete` | Deletes a specific bucket. Fact of deletion is shared among all nodes in network. For now, only *soft delete* is implemented. Soft delete marks the bucket as deleted but data may remain until cleanup cycles remove it. |
 
 ### Streaming File API
 
@@ -115,9 +115,9 @@ File root CID is calculated incrementally using chunk CIDs.
 | `FileDownloadBlock`       | Downloads the block via grpc streaming from a node which address is taken from the response to **FileDownloadChunkCreate**.                                                                                                                                                                                                                                                                                                                                                                                                |
 | `FileList`                | Lists all the files in the given bucket. Only file metadata is returned.                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `FileView`                | Fetches the metadata of one particular file.                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `FileDelete`              | "Soft" deletes the file in a block. The node also shares the information about this operation among all nodes in a network.                                                                                                                                                                                                                                                                                                                                                                                                |
+|| `FileDelete`              | "Soft" deletes the file in a block. The node also shares the information about this operation among all nodes in a network. Soft delete marks the file as deleted but data may remain until cleanup cycles remove it.                                                                                                                                                                                                                                               |
 
-> NOTE: Sharing among nodes functionality uses libp2p pubsub. "Soft" deletes means marking an object with delete flag in db table.
+> NOTE: Sharing among nodes functionality uses libp2p pubsub. "Soft" deletes means marking an object with delete flag in db table, while "hard" deletes permanently remove the data and associated blocks.
 
 ### Akave Node IPC API
 
@@ -131,10 +131,10 @@ Uses same File, Bucket, Block and Chunk models as regular Akave Node API
 | `BucketCreate`       | Unimplemented. Functionality calls from SDK side.                                                                                                                                                                                                                                                                                                                                                                                        |
 | `BucketView`         | Retrieves single bucket metadata by bucket name and creator address. Calls smart contract method GetBucketByName, transforms response into API bucket model.                                                                                                                                                                                                                                                                             |
 | `BucketList`         | Retrieves all buckets metadata (ID, name, created at). For now doesn't sort by creator address.                                                                                                                                                                                                                                                                                                                                          |
-| `BucketDelete`       | Unimplemented. Functionality calls from SDK side.                                                                                                                                                                                                                                                                                                                                                                                        |
+|| `BucketDelete`       | Soft deletes a bucket by marking it as deleted. The bucket metadata is preserved but marked as deleted in the smart contract.                                                                                                                                                                                                                                                                                                        |
 | `FileView`           | Retrieves single file metadata by file name, bucket name, creator address. Calls smart contract GetBucketByName, to receive it's ID, then GetFileByName and transforms response into API file model.                                                                                                                                                                                                                                     |
 | `FileList`           | Retrieves all files of bucket (by name and creator address) metadata. Calls smart contract GetBucketByName, then GetFileByName through all bucket's file id's list.                                                                                                                                                                                                                                                                      |
-| `FileDelete`         | Unimplemented. Functionality calls from SDK side.                                                                                                                                                                                                                                                                                                                                                                                        |
+|| `FileDelete`         | Hard deletes a file and optionally all its blocks. This operation permanently removes file metadata and associated blocks from the smart contract.                                                                                                                                                                                                                                                                                        |
 | `FileUploadCreate`   | Initiates a file upload. Selects node for each file block to upload.                                                                                                                                                                                                                                                                                                                                                                     |
 | `FileUploadBlock`    | Uploads the given block (block's data) via grpc streaming to the node address. If the replication is enabled on a node, the node also replicates this block to some other nodes selected randomly (**replication_factor** defines to how many nodes a block should be replicated to). Also node stores information about peer ID of a node which now has this block (current node and replicated nodes) and stores it on smart contract. |
 | `FileDownloadCreate` | Fetches the file's metadata and its breakdown on blocks: list of blocks this file is made of from smart contract by calling GetBucketByName, GetFileByName, GetFileBlockById respectively. Assigns peer to each block.                                                                                                                                                                                                                   |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
@@ -223,7 +223,7 @@ Used in IPC endpoint FileDownloadCreate.
 | `CreateBucket`       | Creates a new bucket with the specified name                                                                                                                  |
 | `ViewBucket`         | Retrieves details of a specific bucket by its name                                                                                                            |
 | `ListBuckets`        | Lists all buckets available in the network                                                                                                                    |
-| `DeleteBucket`       | "Soft" Deletes a specific bucket by its name                                                                                                                  |
+|| `DeleteBucket` | "Soft" Deletes a specific bucket by its name. Marks the bucket as deleted but data may remain until cleanup processes remove it.                                                                                                                  |
 | `StreamingAPI`       | Returns sdk instance that works with streaming file api                                                                                                       |
 | `ListFiles`          | Lists all streamed files in a specified bucket.                                                                                                               |
 | `FileInfo`           | Retrieves metadata of a specific streamed file by its name and bucket                                                                                         |
@@ -231,7 +231,7 @@ Used in IPC endpoint FileDownloadCreate.
 | `Upload`             | Uploads file's data to a file identified by stream-id. Splits file on chunks and performs chunk upload to different nodes                                     |
 | `CreateFileDownload` | Initiates a file download from a specified bucket. Gets a receipt that describes which chunks the file consists of                                            |
 | `Download`           | Using the receipt returned from `CreateFileDownload` endpoint downloads the file sequentially by chunks. Fetches peer block addresses of blocks of each chunk |
-| `FileDelete`         | Soft deletes a specific file by its name and bucket id                                                                                                        |
+|| `FileDelete`         | Soft deletes a specific file by its name and bucket id. Marks the file as deleted but data may remain until cleanup processes remove it.                                                                                                        |
 
 ### SDK DAG utilities
 - `ChunkDAG` a struct that contains node's(in context of a DAG) metainformation: CID, sizes, block metadata
@@ -253,7 +253,7 @@ Used in IPC endpoint FileDownloadCreate.
 | `Upload` | Splits file on blocks and performs chunk upload to different nodes. Add peer-block to smart contract, that stores info about where each file block stored node-wise.                         |
 | `CreateFileDownload` | Initiates a file download from a specified bucket. Gets a receipt that describes which chunks the file consists of.                                                                          |
 | `Download` | Using the receipt returned from `CreateFileDownload` endpoint downloads the file by blocks, previously fetches peer block addresses of blocks                                                |
-| `FileDelete` | Hard delete (with all blocks) a specific file by its name and bucket's name.                                                                                                                 |
+|| `FileDelete` | Hard delete (with all blocks) a specific file by its name and bucket's name. Permanently removes the file and all associated blocks from storage.                                                                                                                 |
 
 <br>
 
@@ -286,10 +286,11 @@ Disable erasure coding flag `disable-erasure-coding` ensures that file is not er
   ```sh
   akavecli bucket list --node-address=localhost:5000
   ```
-- **Delete Bucket**: Soft deletess a specific bucket.
+- **Delete Bucket**: Soft deletes a specific bucket.
   ```sh
   akavecli bucket delete <bucket-name> --node-address=localhost:5000
   ```
+  **Note**: Soft delete marks the bucket as deleted but doesn't immediately remove the data. The data may still be recoverable until the next cleanup cycle.
 
 ### Streaming API
 - **List Files**: Lists all files in a specified bucket.
@@ -310,47 +311,105 @@ Disable erasure coding flag `disable-erasure-coding` ensures that file is not er
   ```
   <small>`<file-name>` here is the last segment in `<file-path>` of Upload command</small>
   
-- **Delete File**: Deletes a specific file.
+- **Delete File**: Soft deletes a specific file.
   ```sh
   akavecli files-streaming delete <bucket-name> <file-name> --node-address=localhost:5000
   ```
+  **Note**: Soft delete marks the file as deleted but doesn't immediately remove the data. The data may still be recoverable until the next cleanup cycle.
+  
   <small>`<file-name>` here is the last segment in `<file-path>` of Upload command</small>
 
 ### Akave IPC CLI
+
+## Authentication Methods
+
+### Recommended: Secure Storage Methods
+
+#### Using Wallets (Recommended)
+Create and manage wallets securely:
+```sh
+# Create a new wallet
+akavecli wallet create my-wallet
+
+# List available wallets
+akavecli wallet list
+
+# Use wallet for operations (default: uses first available wallet)
+akavecli ipc bucket create <bucket-name> --node-address=localhost:5000
+
+# Use specific wallet
+akavecli ipc bucket create <bucket-name> --node-address=localhost:5000 --account=my-wallet
+```
+
+#### Using Environment Variables
+Set your private key as an environment variable:
+```sh
+# Set environment variable
+export AKAVE_PRIVATE_KEY="your-private-key-here"
+
+# Use in commands
+akavecli ipc bucket create <bucket-name> --node-address=localhost:5000
+```
+
+### Alternative: Inline Private Key (Testing Only)
+⚠️ **WARNING**: Only use inline private keys for testing. Never use this method in production or with valuable keys.
+
+```sh
+akavecli ipc bucket create <bucket-name> --node-address=localhost:5000 --private-key="test-private-key"
+```
 
 ## Commands
 
 ### Bucket Commands
 - **Create Bucket**: Creates a new bucket.
   ```sh
-  akavecli ipc bucket create <bucket-name> --node-address=localhost:5000 --private-key="some-private-key"
+  # Using wallet (recommended)
+  akavecli ipc bucket create <bucket-name> --node-address=localhost:5000
+  
+  # Using specific wallet
+  akavecli ipc bucket create <bucket-name> --node-address=localhost:5000 --account=my-wallet
   ```
-- **Delete Bucket**: Soft deletess a specific bucket.
+- **Delete Bucket**: Soft deletes a specific bucket.
   ```sh
-  akavecli ipc bucket delete <bucket-name> --node-address=localhost:5000 --private-key="some-private-key"
+  # Using wallet (recommended)
+  akavecli ipc bucket delete <bucket-name> --node-address=localhost:5000
   ```
+  **Note**: Soft delete marks the bucket as deleted but doesn't immediately remove the data. The data may still be recoverable until the next cleanup cycle. For permanent deletion, contact your system administrator.
+  
 - **View Bucket**: Retrieves details of a specific bucket.
   ```sh
-  akavecli ipc bucket view <bucket-name> --node-address=localhost:5000 --private-key="some-private-key"
+  # Using wallet (recommended)
+  akavecli ipc bucket view <bucket-name> --node-address=localhost:5000
   ```
 - **List Buckets**: List all available buckets.
   ```sh
-  akavecli ipc bucket list --node-address=localhost:5000 --private-key="some-private-key"
+  # Using wallet (recommended)
+  akavecli ipc bucket list --node-address=localhost:5000
   ```
 ### File Commands
 - **List Files**: List all files in a bucket.
   ```sh
-  akavecli ipc file list <bucket-name> --node-address=localhost:5000 --private-key="some-private-key"
+  # Using wallet (recommended)
+  akavecli ipc file list <bucket-name> --node-address=localhost:5000
   ```
 - **File Info**: Retrieves file information.
   ```sh
-  akavecli ipc file info <bucket-name> <file-name> --node-address=localhost:5000 --private-key="some-private-key"
+  # Using wallet (recommended)
+  akavecli ipc file info <bucket-name> <file-name> --node-address=localhost:5000
   ```
 - **Upload File**: Uploads a file to a bucket(`-e` is optional, key length **must be 32 bytes** long, `disable-erasure-coding` is optional)
   ```sh
-  akavecli ipc file upload <bucket-name> <file-path> -e="encryption-key" --disable-erasure-coding --node-address=localhost:5000 --private-key="some-private-key"
+  # Using wallet (recommended)
+  akavecli ipc file upload <bucket-name> <file-path> -e="encryption-key" --disable-erasure-coding --node-address=localhost:5000
   ```
 - **Download File**: Downloads a file from a bucket(`-e` is optional, key length **must be 32 bytes** long, `disable-erasure-coding` is optional)
   ```sh
-  akavecli ipc file download <bucket-name> <file-name> <destination-path> -e="encryption-key" --disable-erasure-coding --node-address=localhost:5000 --private-key="some-private-key"
-  ``` 
+  # Using wallet (recommended)
+  akavecli ipc file download <bucket-name> <file-name> <destination-path> -e="encryption-key" --disable-erasure-coding --node-address=localhost:5000
+  ```
+- **Delete File**: Hard deletes a specific file and all its blocks.
+  ```sh
+  # Using wallet (recommended)
+  akavecli ipc file delete <bucket-name> <file-name> --node-address=localhost:5000
+  ```
+  **Note**: IPC file deletion is a **hard delete** that permanently removes the file and all its associated blocks from storage. This operation cannot be undone.

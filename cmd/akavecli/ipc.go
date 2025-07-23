@@ -635,11 +635,19 @@ func cmdFileDeleteIPC(cmd *cobra.Command, args []string) (err error) {
 	return nil
 }
 
-// getWalletPrivateKey returns the private key either from the flag or from a wallet.
+// getWalletPrivateKey returns the private key either from the flag, environment variable, or from a wallet.
 // It also returns the wallet address and name if a wallet was used.
 func getWalletPrivateKey(cmd *cobra.Command) (privKey string, err error) {
+	// Priority: 1. Command line flag, 2. Environment variable, 3. Wallet
 	if privateKey != "" {
 		return privateKey, nil
+	}
+
+	// Check environment variable
+	envPrivateKey := os.Getenv("AKAVE_PRIVATE_KEY")
+	if envPrivateKey != "" {
+		cmd.PrintErrf("Using private key from AKAVE_PRIVATE_KEY environment variable\n")
+		return envPrivateKey, nil
 	}
 
 	var walletAddress string
