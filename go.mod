@@ -17,6 +17,7 @@ require (
 	github.com/klauspost/reedsolomon v1.12.4
 	github.com/libp2p/go-buffer-pool v0.1.0
 	github.com/libp2p/go-libp2p v0.42.0
+	github.com/multiformats/go-multihash v0.2.3
 	github.com/schollz/progressbar/v3 v3.18.0
 	github.com/spacemonkeygo/monkit/v3 v3.0.24
 	github.com/spf13/cobra v1.9.1
@@ -84,7 +85,6 @@ require (
 	github.com/multiformats/go-multiaddr v0.16.0 // indirect
 	github.com/multiformats/go-multibase v0.2.0 // indirect
 	github.com/multiformats/go-multicodec v0.9.2 // indirect
-	github.com/multiformats/go-multihash v0.2.3 // indirect
 	github.com/multiformats/go-varint v0.0.7 // indirect
 	github.com/olekukonko/tablewriter v0.0.5 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect

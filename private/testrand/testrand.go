@@ -12,8 +12,10 @@ import (
 	rand2 "math/rand"
 	"testing"
 
+	"github.com/ipfs/go-cid"
 	libp2pCrypto "github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/multiformats/go-multihash"
 	"github.com/stretchr/testify/require"
 )
 
@@ -73,4 +75,15 @@ func GenPeerID(t testing.TB, seed string) peer.ID {
 	peerId, err := peer.IDFromPrivateKey(privateKey)
 	require.NoError(t, err)
 	return peerId
+}
+
+// GenerateRandomCID returns cid, generated from random byte data.
+func GenerateRandomCID(t testing.TB) cid.Cid {
+	data := make([]byte, 32)
+	_, err := rand.Read(data)
+	require.NoError(t, err)
+
+	mh, err := multihash.Sum(data, multihash.SHA2_256, -1)
+	require.NoError(t, err)
+	return cid.NewCidV1(cid.DagProtobuf, mh)
 }

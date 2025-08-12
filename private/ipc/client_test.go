@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/akave-ai/akavesdk/private/ipc"
+	"github.com/akave-ai/akavesdk/private/ipc/contracts"
 	"github.com/akave-ai/akavesdk/private/ipctest"
 	"github.com/akave-ai/akavesdk/private/testrand"
 )
@@ -150,7 +151,17 @@ func TestContracts(t *testing.T) {
 		sign, err := ipc.SignBlock(pk, client.Addresses.Storage, big.NewInt(31337), data)
 		require.NoError(t, err)
 
-		tx, err = client.Storage.FillChunkBlock(client.Auth, cids[j], nodeId32, bucket.Id, big.NewInt(0), nonces[j], index, testFileName, sign, big.NewInt(deadline))
+		tx, err = client.Storage.FillChunkBlock(client.Auth, contracts.IStorageFillChunkBlockArgs{
+			BlockCID:   cids[j],
+			NodeId:     nodeId32,
+			BucketId:   bucket.Id,
+			ChunkIndex: big.NewInt(0),
+			Nonce:      nonces[j],
+			BlockIndex: index,
+			FileName:   testFileName,
+			Signature:  sign,
+			Deadline:   big.NewInt(deadline),
+		})
 		require.NoError(t, err)
 		require.NoError(t, client.WaitForTx(ctx, tx.Hash()))
 	}
@@ -340,6 +351,121 @@ func TestGetTransactionReceiptsBatch(t *testing.T) {
 	}
 
 	require.Equal(t, len(requests), receiptsFound+receiptsNotFound+individualErrors)
+}
+
+func TestAddFileChunksFillChunkBlocks(t *testing.T) {
+	var (
+		ctx            = context.Background()
+		testBucketName = "test-bucket-2"
+		testFileName   = "test-file-2"
+		dialUri        = PickDialURI(t)
+		privateKey     = PickPrivateKey(t)
+	)
+
+	pk := ipctest.NewFundedAccount(t, privateKey, dialUri, ipctest.ToWei(10))
+	newPk := hexutil.Encode(crypto.FromECDSA(pk))[2:]
+
+	client, err := ipc.DeployContracts(ctx, ipc.Config{
+		DialURI:    dialUri,
+		PrivateKey: newPk,
+	})
+	require.NoError(t, err)
+
+	tx, err := client.Storage.CreateBucket(client.Auth, testBucketName)
+	require.NoError(t, err)
+	require.NoError(t, client.WaitForTx(ctx, tx.Hash()))
+
+	bucket, err := client.Storage.GetBucketByName(&bind.CallOpts{Context: ctx, From: client.Auth.From}, testBucketName, client.Auth.From, big.NewInt(0), big.NewInt(0))
+	require.NoError(t, err)
+	require.Equal(t, testBucketName, bucket.Name)
+
+	tx, err = client.Storage.CreateFile(client.Auth, bucket.Id, testFileName)
+	require.NoError(t, err)
+	require.NoError(t, client.WaitForTx(ctx, tx.Hash()))
+
+	chunkCid := testrand.GenerateRandomCID(t)
+	chunkCid2 := testrand.GenerateRandomCID(t)
+	c, err := hex.DecodeString("2e508ef32df4ed7026f552020fde3e522d032fa3fde0e33d06bb5485c9c82cd3")
+	require.NoError(t, err)
+
+	var (
+		cids              = make([][32]byte, 0)
+		firstChunkNonces  = make([]*big.Int, 0)
+		secondChunkNonces = make([]*big.Int, 0)
+		sizes             = make([]*big.Int, 0)
+		cidsTotal         = make([][][32]byte, 0)
+		sizesTotal        = make([][]*big.Int, 0)
+		cid               [32]byte
+	)
+	copy(cid[:], c)
+
+	for i := range 32 {
+		cid[31] = byte(i)
+		cids = append(cids, cid)
+		sizes = append(sizes, big.NewInt(int64(1)))
+		firstChunkNonces = append(firstChunkNonces, testrand.GenerateRandomNonce(t))
+		secondChunkNonces = append(secondChunkNonces, testrand.GenerateRandomNonce(t))
+	}
+
+	cidsTotal = append(cidsTotal, cids, cids)     // same cids in both chunk is acceptable.
+	sizesTotal = append(sizesTotal, sizes, sizes) // same sizes of blocks in both chunk is acceptable.
+
+	tx, err = client.Storage.AddFileChunks(client.Auth, [][]byte{chunkCid.Bytes(), chunkCid2.Bytes()}, bucket.Id, testFileName, []*big.Int{big.NewInt(32), big.NewInt(32)},
+		cidsTotal, sizesTotal, big.NewInt(0))
+	require.NoError(t, err)
+	require.NoError(t, client.WaitForTx(ctx, tx.Hash()))
+
+	nodeId, err := hex.DecodeString("c39cd1e86738c302a2fc3eb6f6cc5d2f8a964ad29490c4335b2a2e089e0dcaf5")
+	require.NoError(t, err)
+
+	var nodeId32 [32]byte
+	copy(nodeId32[:], nodeId)
+
+	deadline := time.Now().Add(time.Hour * 24).Unix()
+	chunkCIDs := [][]byte{chunkCid.Bytes(), chunkCid2.Bytes()}
+	chunkNonces := [][]*big.Int{firstChunkNonces, secondChunkNonces}
+
+	for chunkIndex := range len(chunkCIDs) {
+		args := make([]contracts.IStorageFillChunkBlockArgs, 0)
+
+		for j := range 32 {
+			index := uint8(j)
+
+			data := ipc.StorageData{
+				ChunkCID:   chunkCIDs[chunkIndex],
+				BlockCID:   cids[j],
+				ChunkIndex: big.NewInt(int64(chunkIndex)),
+				BlockIndex: index,
+				NodeID:     nodeId32,
+				Nonce:      chunkNonces[chunkIndex][j],
+				Deadline:   big.NewInt(deadline),
+				BucketID:   bucket.Id,
+			}
+
+			sign, err := ipc.SignBlock(pk, client.Addresses.Storage, big.NewInt(31337), data)
+			require.NoError(t, err)
+
+			args = append(args, contracts.IStorageFillChunkBlockArgs{
+				BlockCID:   cids[j],
+				NodeId:     nodeId32,
+				BucketId:   bucket.Id,
+				ChunkIndex: big.NewInt(int64(chunkIndex)),
+				Nonce:      chunkNonces[chunkIndex][j],
+				BlockIndex: index,
+				FileName:   testFileName,
+				Signature:  sign,
+				Deadline:   big.NewInt(deadline),
+			})
+		}
+
+		tx, err = client.Storage.FillChunkBlocks(client.Auth, args)
+		require.NoError(t, err)
+		require.NoError(t, client.WaitForTx(ctx, tx.Hash()))
+	}
+
+	tx, err = client.Storage.CommitFile(client.Auth, bucket.Id, testFileName, big.NewInt(64), big.NewInt(64), chunkCid.Bytes())
+	require.NoError(t, err)
+	require.NoError(t, client.WaitForTx(ctx, tx.Hash()))
 }
 
 func generateRandomAddress(t *testing.T) common.Address {
