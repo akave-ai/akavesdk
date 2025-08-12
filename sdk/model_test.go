@@ -64,12 +64,12 @@ func createMockChunk(index int64) IPCFileChunkUploadV2 {
 	mockCID, _ := cid.Decode(cidStr)
 
 	return IPCFileChunkUploadV2{
-		Index:         index,
-		ChunkCID:      mockCID,
-		ActualSize:    1024,
-		RawDataSize:   1024,
-		ProtoNodeSize: 1100,
-		BucketID:      [32]byte{1, 2, 3},
-		FileName:      "test-file",
+		Index:       index,
+		ChunkCID:    mockCID,
+		ActualSize:  1024,
+		RawDataSize: 1024,
+		EncodedSize: 1100,
+		BucketID:    [32]byte{1, 2, 3},
+		FileName:    "test-file",
 	}
 }

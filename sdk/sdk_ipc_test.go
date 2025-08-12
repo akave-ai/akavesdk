@@ -22,7 +22,7 @@ import (
 	"github.com/akave-ai/akavesdk/sdk"
 )
 
-func TestCreateBucketIPC(t *testing.T) {
+func TestIPCCreateBucket(t *testing.T) {
 	privateKey := PickPrivateKey(t)
 	dialURI := PickDialURI(t)
 	pk := ipctest.NewFundedAccount(t, privateKey, dialURI, ipctest.ToWei(10))
@@ -44,7 +44,7 @@ func TestCreateBucketIPC(t *testing.T) {
 	require.Equal(t, bucketName, createBucketResult.Name)
 }
 
-func TestViewBucketIPC(t *testing.T) {
+func TestIPCViewBucket(t *testing.T) {
 	privateKey := PickPrivateKey(t)
 	dialURI := PickDialURI(t)
 	pk := ipctest.NewFundedAccount(t, privateKey, dialURI, ipctest.ToWei(10))
@@ -71,7 +71,7 @@ func TestViewBucketIPC(t *testing.T) {
 	require.Equal(t, createBucketResult.ID, viewBucketResult.ID)
 }
 
-func TestListBucketsIPC(t *testing.T) {
+func TestIPCListBuckets(t *testing.T) {
 	privateKey := PickPrivateKey(t)
 	dialURI := PickDialURI(t)
 	pk := ipctest.NewFundedAccount(t, privateKey, dialURI, ipctest.ToWei(10))
@@ -86,23 +86,51 @@ func TestListBucketsIPC(t *testing.T) {
 	ipc, err := akave.IPC()
 	require.NoError(t, err)
 
-	bucketName := randomBucketName(t, 10)
-	bucketName2 := randomBucketName(t, 10)
+	// Create 10 buckets
+	bucketNames := make([]string, 10)
+	for i := 0; i < 10; i++ {
+		name := randomBucketName(t, 10)
+		bucketNames[i] = name
+		createBucketResult, err := ipc.CreateBucket(context.Background(), name)
+		require.NoError(t, err)
+		require.Equal(t, name, createBucketResult.Name)
+	}
 
-	createBucketResult, err := ipc.CreateBucket(context.Background(), bucketName)
-	require.NoError(t, err)
-	require.Equal(t, bucketName, createBucketResult.Name)
+	t.Run("list all", func(t *testing.T) {
+		bucketList, err := ipc.ListBuckets(context.Background(), 0, 20)
+		require.NoError(t, err)
+		require.Len(t, bucketList, 10)
+		for i, b := range bucketList {
+			require.Equal(t, bucketNames[i], b.Name)
+		}
+	})
 
-	createBucketResult2, err := ipc.CreateBucket(context.Background(), bucketName2)
-	require.NoError(t, err)
-	require.Equal(t, bucketName2, createBucketResult2.Name)
-
-	bucketList, err := ipc.ListBuckets(context.Background())
-	require.NoError(t, err)
-	require.Len(t, bucketList, 2)
+	t.Run("list paginated", func(t *testing.T) {
+		pageSize := 4
+		pages := [][]string{}
+		for offset := 0; offset < 10; offset += pageSize {
+			bucketList, err := ipc.ListBuckets(context.Background(), int64(offset), int64(pageSize))
+			require.NoError(t, err)
+			end := min(offset+pageSize, 10)
+			require.Len(t, bucketList, end-offset)
+			for i, b := range bucketList {
+				require.Equal(t, bucketNames[offset+i], b.Name)
+			}
+			pages = append(pages, bucketNames[offset:end])
+		}
+		// Check that we have 3 pages: [0-3], [4-7], [8-9]
+		require.Len(t, pages, 3)
+		for i, page := range pages {
+			if i < 2 {
+				require.Len(t, page, 4)
+			} else {
+				require.Len(t, page, 2)
+			}
+		}
+	})
 }
 
-func TestDeleteBucketIPC(t *testing.T) {
+func TestIPCDeleteBucket(t *testing.T) {
 	privateKey := PickPrivateKey(t)
 	dialURI := PickDialURI(t)
 	pk := ipctest.NewFundedAccount(t, privateKey, dialURI, ipctest.ToWei(10))
@@ -124,12 +152,12 @@ func TestDeleteBucketIPC(t *testing.T) {
 	require.Equal(t, bucketName, createBucketResult.Name)
 
 	require.NoError(t, ipc.DeleteBucket(context.Background(), bucketName))
-	bucketList, err := ipc.ListBuckets(context.Background())
+	bucketList, err := ipc.ListBuckets(context.Background(), 0, 10)
 	require.NoError(t, err)
 	require.Len(t, bucketList, 0)
 }
 
-func TestFileInfo(t *testing.T) {
+func TestIPCFileInfo(t *testing.T) {
 	privateKey := PickPrivateKey(t)
 	dialURI := PickDialURI(t)
 	pk := ipctest.NewFundedAccount(t, privateKey, dialURI, ipctest.ToWei(10))
@@ -170,7 +198,7 @@ func TestFileInfo(t *testing.T) {
 	assert.GreaterOrEqual(t, info.EncodedSize, memory.MB.ToInt64())
 }
 
-func TestListFiles(t *testing.T) {
+func TestIPCListFiles(t *testing.T) {
 	privateKey := PickPrivateKey(t)
 	dialURI := PickDialURI(t)
 	pk := ipctest.NewFundedAccount(t, privateKey, dialURI, ipctest.ToWei(10))
@@ -192,9 +220,11 @@ func TestListFiles(t *testing.T) {
 	_, err = ipc.CreateBucket(ctx, bucketName)
 	require.NoError(t, err)
 
-	for i := 0; i < 5; i++ {
+	fileNames := make([]string, 10)
+	for i := 0; i < 10; i++ {
 		file := bytes.NewBuffer(testrand.BytesD(t, 1, int64(i+1)*memory.MB.ToInt64()))
 		fileName := randomBucketName(t, 10)
+		fileNames[i] = fileName
 
 		fileUpload, err := ipc.CreateFileUpload(context.Background(), bucketName, fileName)
 		require.NoError(t, err)
@@ -204,12 +234,41 @@ func TestListFiles(t *testing.T) {
 		assert.Equal(t, upResult.Name, fileName)
 	}
 
-	list, err := ipc.ListFiles(context.Background(), bucketName)
-	require.NoError(t, err)
-	assert.Len(t, list, 5)
+	t.Run("list all", func(t *testing.T) {
+		list, err := ipc.ListFiles(context.Background(), bucketName, 0, 20)
+		require.NoError(t, err)
+		assert.Len(t, list, 10)
+		for i, f := range list {
+			assert.Equal(t, fileNames[i], f.Name)
+		}
+	})
+
+	t.Run("list paginated", func(t *testing.T) {
+		pageSize := 4
+		pages := [][]string{}
+		for offset := 0; offset < 10; offset += pageSize {
+			list, err := ipc.ListFiles(context.Background(), bucketName, int64(offset), int64(pageSize))
+			require.NoError(t, err)
+			end := min(offset+pageSize, 10)
+			assert.Len(t, list, end-offset)
+			for i, f := range list {
+				assert.Equal(t, fileNames[offset+i], f.Name)
+			}
+			pages = append(pages, fileNames[offset:end])
+		}
+		// Check that we have 3 pages: [0-3], [4-7], [8-9]
+		assert.Len(t, pages, 3)
+		for i, page := range pages {
+			if i < 2 {
+				assert.Len(t, page, 4)
+			} else {
+				assert.Len(t, page, 2)
+			}
+		}
+	})
 }
 
-func TestFileDeleteIPC(t *testing.T) {
+func TestIPCFileDelete(t *testing.T) {
 	privateKey := PickPrivateKey(t)
 	dialURI := PickDialURI(t)
 	pk := ipctest.NewFundedAccount(t, privateKey, dialURI, ipctest.ToWei(10))
@@ -242,12 +301,12 @@ func TestFileDeleteIPC(t *testing.T) {
 
 	require.NoError(t, ipc.FileDelete(ctx, bucketName, fileName))
 
-	list, err := ipc.ListFiles(ctx, bucketName)
+	list, err := ipc.ListFiles(ctx, bucketName, 0, 10)
 	require.NoError(t, err)
 	assert.Len(t, list, 0)
 }
 
-func TestFileSetPublicAccess(t *testing.T) {
+func TestIPCFileSetPublicAccess(t *testing.T) {
 	privateKey := PickPrivateKey(t)
 	dialURI := PickDialURI(t)
 	pk := ipctest.NewFundedAccount(t, privateKey, dialURI, ipctest.ToWei(10))
@@ -291,7 +350,7 @@ func TestFileSetPublicAccess(t *testing.T) {
 	assert.True(t, info.IsPublic)
 }
 
-func TestUploadDownloadIPC(t *testing.T) {
+func TestIPCUploadDownload(t *testing.T) {
 	tests := []struct {
 		name     string
 		fileSize int64 // Size in MB
@@ -346,7 +405,7 @@ func TestUploadDownloadIPC(t *testing.T) {
 	})
 }
 
-func TestUploadDownloadWithErasureCodeIPC(t *testing.T) {
+func TestIPCUploadDownloadWithErasureCode(t *testing.T) {
 	tests := []struct {
 		name     string
 		fileSize int64 // Size in MB
@@ -402,7 +461,7 @@ func TestUploadDownloadWithErasureCodeIPC(t *testing.T) {
 	})
 }
 
-func TestRangeFileDownloadIPC(t *testing.T) {
+func TestIPCRangeFileDownload(t *testing.T) {
 	privateKey := PickPrivateKey(t)
 	dialURI := PickDialURI(t)
 	pk := ipctest.NewFundedAccount(t, privateKey, dialURI, ipctest.ToWei(10))
@@ -461,7 +520,7 @@ func TestRangeFileDownloadIPC(t *testing.T) {
 	checkFileContents(t, 10, expected, downloaded.Bytes())
 }
 
-func TestResumeUploadIPC(t *testing.T) {
+func TestIPCResumeUpload(t *testing.T) {
 	privateKey := PickPrivateKey(t)
 	dialURI := PickDialURI(t)
 	pk := ipctest.NewFundedAccount(t, privateKey, dialURI, ipctest.ToWei(10))

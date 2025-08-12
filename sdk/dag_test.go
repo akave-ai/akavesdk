@@ -12,6 +12,7 @@ import (
 	"github.com/ipfs/go-cid"
 	"github.com/stretchr/testify/require"
 
+	"github.com/akave-ai/akavesdk/private/erasurecode"
 	"github.com/akave-ai/akavesdk/private/memory"
 	"github.com/akave-ai/akavesdk/private/testrand"
 	"github.com/akave-ai/akavesdk/sdk"
@@ -35,6 +36,44 @@ func TestBuildChunkDag(t *testing.T) {
 	}
 }
 
+func TestChunkSize(t *testing.T) {
+	t.Run("without erasure coding", func(t *testing.T) {
+		file := generate10MiBFile(t, 2024)
+
+		actual, err := sdk.BuildDAG(context.Background(), file, memory.MiB.ToInt64(), nil)
+		require.NoError(t, err)
+		require.Equal(t, uint64(10485900), actual.EncodedSize)
+
+		var blocksTotal uint64
+		for _, block := range actual.Blocks {
+			blocksTotal += uint64(len(block.Data))
+		}
+		require.Equal(t, blocksTotal, actual.EncodedSize)
+	})
+
+	t.Run("with erasure coding", func(t *testing.T) {
+		ec, err := erasurecode.New(16, 16)
+		require.NoError(t, err)
+
+		file := generate10MiBFile(t, 2024)
+
+		data, err := ec.Encode(file.Bytes())
+		require.NoError(t, err)
+
+		blockSize := int64(len(data) / (ec.DataBlocks + ec.ParityBlocks))
+
+		actual, err := sdk.BuildDAG(context.Background(), bytes.NewBuffer(data), blockSize, nil)
+		require.NoError(t, err)
+		require.Equal(t, uint64(20972000), actual.EncodedSize)
+
+		var blocksTotal uint64
+		for _, block := range actual.Blocks {
+			blocksTotal += uint64(len(block.Data))
+		}
+		require.Equal(t, blocksTotal, actual.EncodedSize)
+	})
+}
+
 func TestRootCIDBuilder(t *testing.T) {
 	t.Run("build root cid with no chunks", func(t *testing.T) {
 		builder, err := sdk.NewDAGRoot()
@@ -56,7 +95,7 @@ func TestRootCIDBuilder(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, chunkDAG.Blocks, 1)
 
-		require.NoError(t, builder.AddLink(chunkDAG.CID, chunkDAG.RawDataSize, chunkDAG.ProtoNodeSize))
+		require.NoError(t, builder.AddLink(chunkDAG.CID, chunkDAG.RawDataSize, chunkDAG.EncodedSize))
 
 		rootCID, err := builder.Build()
 		require.NoError(t, err)
@@ -72,7 +111,7 @@ func TestRootCIDBuilder(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, chunkDAG.Blocks, 10)
 
-		require.NoError(t, builder.AddLink(chunkDAG.CID, chunkDAG.RawDataSize, chunkDAG.ProtoNodeSize))
+		require.NoError(t, builder.AddLink(chunkDAG.CID, chunkDAG.RawDataSize, chunkDAG.EncodedSize))
 
 		rootCID, err := builder.Build()
 		require.NoError(t, err)
@@ -89,16 +128,16 @@ func TestRootCIDBuilder(t *testing.T) {
 
 		chunk1DAG, err := sdk.BuildDAG(context.Background(), chunk1, memory.MiB.ToInt64(), nil)
 		require.NoError(t, err)
-		require.NoError(t, builder.AddLink(chunk1DAG.CID, chunk1DAG.RawDataSize, chunk1DAG.ProtoNodeSize))
+		require.NoError(t, builder.AddLink(chunk1DAG.CID, chunk1DAG.RawDataSize, chunk1DAG.EncodedSize))
 
 		chunk2DAG, err := sdk.BuildDAG(context.Background(), chunk2, memory.MiB.ToInt64(), nil)
 		require.NoError(t, err)
-		require.NoError(t, builder.AddLink(chunk2DAG.CID, chunk2DAG.RawDataSize, chunk2DAG.ProtoNodeSize))
+		require.NoError(t, builder.AddLink(chunk2DAG.CID, chunk2DAG.RawDataSize, chunk2DAG.EncodedSize))
 
 		rootCid, err := builder.Build()
 		require.NoError(t, err)
 
-		require.Equal(t, "bafybeigik3o6tjpdncjam4ymxqav3772lhbo6abevzezjxxm4ghzafst4i", rootCid.String())
+		require.Equal(t, "bafybeiamgcn2bye63nlzuvilqrc6pqt7jsn5oyp2wx7pkeu4eyxgzglvpi", rootCid.String())
 	})
 }
 

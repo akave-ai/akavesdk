@@ -14,31 +14,14 @@ import (
 )
 
 type connectionPool struct {
-	mu                sync.RWMutex
-	connections       map[string]*grpc.ClientConn
-	useConnectionPool bool
+	mu          sync.RWMutex
+	connections map[string]*grpc.ClientConn
 }
 
 func newConnectionPool() *connectionPool {
 	return &connectionPool{
 		connections: make(map[string]*grpc.ClientConn),
 	}
-}
-
-func (p *connectionPool) createClient(addr string, pooled bool) (pb.NodeAPIClient, func() error, error) {
-	if pooled {
-		conn, err := p.get(addr)
-		if err != nil {
-			return nil, nil, err
-		}
-		return pb.NewNodeAPIClient(conn), nil, nil
-	}
-
-	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		return nil, nil, err
-	}
-	return pb.NewNodeAPIClient(conn), conn.Close, nil
 }
 
 func (p *connectionPool) createIPCClient(addr string, pooled bool) (pb.IPCNodeAPIClient, func() error, error) {

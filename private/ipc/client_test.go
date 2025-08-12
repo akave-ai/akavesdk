@@ -64,13 +64,13 @@ func TestContracts(t *testing.T) {
 	pk := ipctest.NewFundedAccount(t, privateKey, dialUri, ipctest.ToWei(10))
 	newPk := hexutil.Encode(crypto.FromECDSA(pk))[2:]
 
-	client, storageAddress, _, err := ipc.DeployStorage(ctx, ipc.Config{
+	client, err := ipc.DeployContracts(ctx, ipc.Config{
 		DialURI:    dialUri,
 		PrivateKey: newPk,
 	})
 	require.NoError(t, err)
 
-	listIDs, err := client.Storage.GetOwnerBuckets(&bind.CallOpts{}, client.Auth.From)
+	listIDs, err := client.Storage.GetOwnerBuckets(&bind.CallOpts{Context: ctx}, client.Auth.From, big.NewInt(0), big.NewInt(10), big.NewInt(0), big.NewInt(0))
 	require.NoError(t, err)
 	require.Len(t, listIDs, 0)
 
@@ -78,15 +78,20 @@ func TestContracts(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, client.WaitForTx(ctx, tx.Hash()))
 
-	bucket, err := client.Storage.GetBucketByName(&bind.CallOpts{From: client.Auth.From}, testBucketName)
+	bucket, err := client.Storage.GetBucketByName(&bind.CallOpts{Context: ctx, From: client.Auth.From}, testBucketName, client.Auth.From, big.NewInt(0), big.NewInt(0))
 	require.NoError(t, err)
 	require.Equal(t, testBucketName, bucket.Name)
 
-	listIDs, err = client.Storage.GetOwnerBuckets(&bind.CallOpts{}, client.Auth.From)
+	listIDs, err = client.Storage.GetOwnerBuckets(&bind.CallOpts{Context: ctx}, client.Auth.From, big.NewInt(0), big.NewInt(10), big.NewInt(0), big.NewInt(0))
 	require.NoError(t, err)
 	require.Len(t, listIDs, 1)
 
-	buckets, err := client.Storage.GetBucketsByIds(&bind.CallOpts{}, listIDs)
+	bucketIDs := make([][32]byte, len(listIDs))
+	for i, bucketStorage := range listIDs {
+		bucketIDs[i] = bucketStorage.Id
+	}
+
+	buckets, err := client.Storage.GetBucketsByIds(&bind.CallOpts{Context: ctx}, bucketIDs)
 	require.NoError(t, err)
 	require.Equal(t, testBucketName, buckets[0].Name)
 
@@ -142,7 +147,7 @@ func TestContracts(t *testing.T) {
 			BucketID:   bucket.Id,
 		}
 
-		sign, err := ipc.SignBlock(pk, storageAddress, big.NewInt(31337), data)
+		sign, err := ipc.SignBlock(pk, client.Addresses.Storage, big.NewInt(31337), data)
 		require.NoError(t, err)
 
 		tx, err = client.Storage.FillChunkBlock(client.Auth, cids[j], nodeId32, bucket.Id, big.NewInt(0), nonces[j], index, testFileName, sign, big.NewInt(deadline))
@@ -154,13 +159,13 @@ func TestContracts(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, client.WaitForTx(ctx, tx.Hash()))
 
-	file, err := client.Storage.GetFileByName(&bind.CallOpts{}, buckets[0].Id, testFileName)
+	file, err := client.Storage.GetFileByName(&bind.CallOpts{Context: ctx}, buckets[0].Id, testFileName)
 	require.NoError(t, err)
 	require.Equal(t, testFileName, file.Name)
 	require.Equal(t, chunkCid, file.FileCID)
 	require.Equal(t, int64(32), file.EncodedSize.Int64())
 
-	file, err = client.Storage.GetFileById(&bind.CallOpts{}, file.Id)
+	file, err = client.Storage.GetFileById(&bind.CallOpts{Context: ctx}, file.Id)
 	require.NoError(t, err)
 	require.Equal(t, testFileName, file.Name)
 	require.Equal(t, chunkCid, file.FileCID)
@@ -174,7 +179,7 @@ func TestContracts(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, client.WaitForTx(ctx, tx.Hash()))
 
-	isValid, err := policyFactory.ValidateAccess(&bind.CallOpts{}, address, nil)
+	isValid, err := policyFactory.ValidateAccess(&bind.CallOpts{Context: ctx}, address, nil)
 	require.NoError(t, err)
 	require.True(t, isValid)
 
@@ -182,26 +187,28 @@ func TestContracts(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, client.WaitForTx(ctx, tx.Hash()))
 
-	access, isPublic, err := client.AccessManager.GetFileAccessInfo(&bind.CallOpts{}, file.Id)
+	access, isPublic, err := client.AccessManager.GetFileAccessInfo(&bind.CallOpts{Context: ctx}, file.Id)
 	require.NoError(t, err)
 	require.NotNil(t, access)
 	require.True(t, isPublic)
 
-	fileIdx, err := client.Storage.GetFileIndexById(&bind.CallOpts{}, file.Name, file.Id)
+	fileIdx, err := client.Storage.GetFileIndexById(&bind.CallOpts{Context: ctx, From: client.Auth.From}, bucket.Name, file.Id, client.Auth.From)
 	require.NoError(t, err)
+	require.True(t, fileIdx.Exists)
 
-	tx, err = client.Storage.DeleteFile(client.Auth, file.Id, file.BucketId, file.Name, fileIdx)
-	require.NoError(t, err)
-	require.NoError(t, client.WaitForTx(ctx, tx.Hash()))
-
-	bucketIdx, err := client.Storage.GetBucketIndexByName(&bind.CallOpts{}, bucket.Name, client.Auth.From)
-	require.NoError(t, err)
-
-	tx, err = client.Storage.DeleteBucket(client.Auth, buckets[0].Id, buckets[0].Name, bucketIdx)
+	tx, err = client.Storage.DeleteFile(client.Auth, file.Id, file.BucketId, file.Name, fileIdx.Index)
 	require.NoError(t, err)
 	require.NoError(t, client.WaitForTx(ctx, tx.Hash()))
 
-	listIDs, err = client.Storage.GetOwnerBuckets(&bind.CallOpts{}, client.Auth.From)
+	bucketIdx, err := client.Storage.GetBucketIndexByName(&bind.CallOpts{Context: ctx, From: client.Auth.From}, bucket.Name, client.Auth.From)
+	require.NoError(t, err)
+	require.True(t, bucketIdx.Exists)
+
+	tx, err = client.Storage.DeleteBucket(client.Auth, buckets[0].Id, buckets[0].Name, bucketIdx.Index)
+	require.NoError(t, err)
+	require.NoError(t, client.WaitForTx(ctx, tx.Hash()))
+
+	listIDs, err = client.Storage.GetOwnerBuckets(&bind.CallOpts{Context: ctx}, client.Auth.From, big.NewInt(0), big.NewInt(10), big.NewInt(0), big.NewInt(0))
 	require.NoError(t, err)
 	require.Len(t, listIDs, 0)
 
@@ -224,12 +231,12 @@ func TestContracts(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, client.WaitForTx(ctx, tx.Hash()))
 
-	listPeerIDs, err := client.Storage.GetPeersByPeerBlockCid(&bind.CallOpts{}, peerBlockCid, testFileName)
+	listPeerIDs, err := client.Storage.GetPeersByPeerBlockCid(&bind.CallOpts{Context: ctx}, peerBlockCid, testFileName)
 	require.NoError(t, err)
 	require.Equal(t, listPeerIDs[0], peerId1byte32)
 	require.Equal(t, listPeerIDs[1], peerId2byte32)
 
-	peersMap, err := client.Storage.GetPeersArrayByPeerBlockCid(&bind.CallOpts{}, [][32]byte{peerBlockCid}, testFileName)
+	peersMap, err := client.Storage.GetPeersArrayByPeerBlockCid(&bind.CallOpts{Context: ctx}, [][32]byte{peerBlockCid}, testFileName)
 	require.NoError(t, err)
 	require.Len(t, peersMap, 1)
 
@@ -240,10 +247,11 @@ func TestContracts(t *testing.T) {
 
 	id := crypto.Keccak256Hash(b)
 
-	idx, err := client.Storage.GetPeerBlockIndexById(&bind.CallOpts{}, peerId1byte32, peerBlockCid, testFileName)
+	idx, err := client.Storage.GetPeerBlockIndexById(&bind.CallOpts{Context: ctx}, peerId1byte32, peerBlockCid, testFileName)
 	require.NoError(t, err)
+	require.True(t, idx.Exists)
 
-	tx, err = client.Storage.DeletePeerBlock(client.Auth, id, peerId1byte32, peerBlockCid, testFileName, idx)
+	tx, err = client.Storage.DeletePeerBlock(client.Auth, id, peerId1byte32, peerBlockCid, testFileName, idx.Index)
 	require.NoError(t, err)
 	require.NoError(t, client.WaitForTx(ctx, tx.Hash()))
 }
@@ -258,7 +266,7 @@ func TestGetTransactionReceiptsBatch(t *testing.T) {
 	pk := ipctest.NewFundedAccount(t, privateKey, dialUri, ipctest.ToWei(10))
 	newPk := hexutil.Encode(crypto.FromECDSA(pk))[2:]
 
-	client, _, _, err := ipc.DeployStorage(ctx, ipc.Config{
+	client, err := ipc.DeployContracts(ctx, ipc.Config{
 		DialURI:    dialUri,
 		PrivateKey: newPk,
 	})

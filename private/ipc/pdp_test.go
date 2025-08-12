@@ -143,7 +143,7 @@ func TestContractPDP(t *testing.T) {
 		fillBlocks(t)
 	}
 
-	epoch, err := pdpVerifier.GetNextChallengeEpoch(&bind.CallOpts{}, setId)
+	epoch, err := pdpVerifier.GetNextChallengeEpoch(&bind.CallOpts{Context: ctx}, setId)
 	require.NoError(t, err)
 
 	var proofsToProve []contracts.PDPVerifierProof
