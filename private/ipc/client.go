@@ -25,13 +25,11 @@ import (
 
 // Config represents configuration for the storage contract client.
 type Config struct {
-	DialURI                        string        `usage:"addr of ipc endpoint"`
-	PrivateKey                     string        `usage:"hex private key used to sign transactions"`
-	StorageContractAddress         string        `usage:"hex storage contract address"`
-	AccessContractAddress          string        `usage:"hex access manager contract address"`
-	PolicyFactoryContractAddress   string        `usage:"hex policy factory contract address"`
-	GasPriceCheckInterval          time.Duration `usage:"gas price check loop renewal interval"`
-	NumberOfConcurrentTransactions int64         `usage:"number of concurrent fill chunk block transactions"`
+	DialURI                      string `usage:"addr of ipc endpoint"`
+	PrivateKey                   string `usage:"hex private key used to sign transactions"`
+	StorageContractAddress       string `usage:"hex storage contract address"`
+	AccessContractAddress        string `usage:"hex access manager contract address"`
+	PolicyFactoryContractAddress string `usage:"hex policy factory contract address"`
 }
 
 // StorageData represents the struct for signing.
@@ -49,13 +47,11 @@ type StorageData struct {
 // DefaultConfig returns default configuration for the ipc.
 func DefaultConfig() Config {
 	return Config{
-		DialURI:                        "",
-		PrivateKey:                     "",
-		StorageContractAddress:         "",
-		AccessContractAddress:          "",
-		PolicyFactoryContractAddress:   "",
-		GasPriceCheckInterval:          5 * time.Second,
-		NumberOfConcurrentTransactions: 10,
+		DialURI:                      "",
+		PrivateKey:                   "",
+		StorageContractAddress:       "",
+		AccessContractAddress:        "",
+		PolicyFactoryContractAddress: "",
 	}
 }
 
@@ -70,7 +66,6 @@ type Client struct {
 	Eth              *ethclient.Client
 	Addresses        ContractsAddresses
 	chainID          *big.Int
-	ticker           *time.Ticker
 }
 
 // ContractsAddresses contains addresses of deployed contracts.
@@ -135,7 +130,6 @@ func Dial(ctx context.Context, config Config) (*Client, error) {
 			AccessManager: config.AccessContractAddress,
 			PolicyFactory: config.PolicyFactoryContractAddress,
 		},
-		ticker: time.NewTicker(200 * time.Millisecond),
 	}
 
 	if config.PolicyFactoryContractAddress != "" {
@@ -173,7 +167,6 @@ func DeployContracts(ctx context.Context, config Config) (*Client, error) {
 	client := &Client{
 		Auth:    auth,
 		Eth:     ethClient,
-		ticker:  time.NewTicker(200 * time.Millisecond),
 		chainID: chainID,
 	}
 
@@ -399,11 +392,26 @@ func (client *Client) WaitForTx(ctx context.Context, hash common.Hash) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	receipt, err := client.Eth.TransactionReceipt(ctx, hash)
+	if err == nil {
+		if receipt.Status == 1 {
+			return nil
+		}
+
+		return errs.New("transaction failed")
+	}
+	if !errors.Is(err, ethereum.NotFound) {
+		return err
+	}
+
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-client.ticker.C:
+		case <-ticker.C:
 			receipt, err := client.Eth.TransactionReceipt(ctx, hash)
 			if err == nil {
 				if receipt.Status == 1 {

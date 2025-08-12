@@ -116,7 +116,7 @@ func deposit(ctx context.Context, client *ethclient.Client, signer types.Signer,
 		return err
 	}
 
-	return waitForTx(ctx, client, signedTx.Hash())
+	return WaitForTx(ctx, client, signedTx.Hash())
 }
 
 // ToWei convert amount into *big.Int.
@@ -124,13 +124,10 @@ func ToWei(amount int64) *big.Int {
 	return new(big.Int).Mul(big.NewInt(amount), big.NewInt(1e18))
 }
 
-// waitForTx block execution until transaction receipt is received or context is cancelled.
-func waitForTx(ctx context.Context, ethClient *ethclient.Client, hash common.Hash) error {
+// WaitForTx block execution until transaction receipt is received or context is cancelled.
+func WaitForTx(ctx context.Context, ethClient *ethclient.Client, hash common.Hash) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-
-	ticker := time.NewTicker(200 * time.Millisecond)
-	defer ticker.Stop()
 
 	receipt, err := ethClient.TransactionReceipt(ctx, hash)
 	if err == nil {
@@ -143,6 +140,9 @@ func waitForTx(ctx context.Context, ethClient *ethclient.Client, hash common.Has
 	if !errors.Is(err, ethereum.NotFound) {
 		return err
 	}
+
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
 
 	for {
 		select {
