@@ -17,6 +17,7 @@ import (
 	"github.com/spacemonkeygo/monkit/v3"
 	"github.com/spacemonkeygo/monkit/v3/environment"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 	mJaeger "storj.io/monkit-jaeger"
@@ -174,6 +175,43 @@ func init() {
 	rootCmd.AddCommand(ipcCmd)
 	rootCmd.AddCommand(walletCmd)
 }
+func initEnhancements() {
+	// Initialize simple cache system (won't conflict with your config)
+	if err := InitCache(); err != nil {
+		log.Printf("Warning: Failed to initialize cache: %v", err)
+	}
+
+	// Initialize cache commands
+	initCacheCommands()
+
+	// Add cache command to root
+	rootCmd.AddCommand(cacheCmd)
+
+	// Add simple aliases to existing commands (enhance usability)
+	bucketCmd.Aliases = []string{"b", "bkt"}
+	fileStreamingCmd.Aliases = []string{"f", "files"}
+	ipcCmd.Aliases = []string{"i"}
+	walletCmd.Aliases = []string{"w"}
+
+	// Add one quick command for better UX
+	quickListCmd := &cobra.Command{
+		Use:   "ls [bucket]",
+		Short: "Quick list (buckets or files in bucket)",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return cmdListBuckets(cmd, args)
+			}
+			// Use your existing function to update recent buckets
+			UpdateRecentBuckets(args[0])
+			return cmdStreamingListFiles(cmd, args)
+		},
+	}
+	rootCmd.AddCommand(quickListCmd)
+
+	// Enable command suggestions for better UX
+	rootCmd.SuggestionsMinimumDistance = 1
+}
 
 func initFlags() {
 	rootCmd.PersistentFlags().StringVar(&nodeRPCAddress, "node-address", "127.0.0.1:5000", "The address of the node RPC")
@@ -202,8 +240,105 @@ func initTracing(log *zap.Logger) (*mJaeger.ThriftCollector, func()) {
 	return collector, unreg
 }
 
+func addShortcuts() {
+	// Add aliases to existing commands
+	bucketCmd.Aliases = []string{"b", "bkt"}
+	bucketCreateCmd.Aliases = []string{"c", "new"}
+	bucketDeleteCmd.Aliases = []string{"d", "del", "rm"}
+	bucketListCmd.Aliases = []string{"l", "ls"}
+	bucketViewCmd.Aliases = []string{"v", "show"}
+
+	// File streaming shortcuts
+	fileStreamingCmd.Aliases = []string{"f", "files"}
+	streamingFileListCmd.Aliases = []string{"l", "ls"}
+	streamingFileInfoCmd.Aliases = []string{"i", "info", "show"}
+	streamingFileUploadCmd.Aliases = []string{"u", "up", "put"}
+	streamingFileDownloadCmd.Aliases = []string{"d", "down", "get"}
+	streamingFileDeleteCmd.Aliases = []string{"del", "rm"}
+
+	// IPC shortcuts
+	ipcCmd.Aliases = []string{"i"}
+
+	// Wallet shortcuts
+	walletCmd.Aliases = []string{"w"}
+
+	// Enable command suggestions
+	rootCmd.SuggestionsMinimumDistance = 1
+}
+
+func addQuickCommands() {
+	// Quick upload command
+	quickUploadCmd := &cobra.Command{
+		Use:   "up <bucket> <file>",
+		Short: "Quick upload (alias for files-streaming upload)",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			UpdateRecentBuckets(args[0])
+			UpdateRecentFiles(args[1])
+			return cmdStreamingFileUpload(cmd, args)
+		},
+	}
+	copyFlags(quickUploadCmd, streamingFileUploadCmd)
+
+	// Quick download command
+	quickDownloadCmd := &cobra.Command{
+		Use:   "down <bucket> <file> [destination]",
+		Short: "Quick download (alias for files-streaming download)",
+		Args:  cobra.RangeArgs(2, 3),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 2 {
+				args = append(args, ".")
+			}
+			UpdateRecentBuckets(args[0])
+			UpdateRecentFiles(args[1])
+			UpdateLastDownloadDir(args[2])
+			return cmdStreamingFileDownload(cmd, args)
+		},
+	}
+	copyFlags(quickDownloadCmd, streamingFileDownloadCmd)
+
+	// Quick list command
+	quickListCmd := &cobra.Command{
+		Use:   "ls [bucket]",
+		Short: "Quick list (buckets or files in bucket)",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return cmdListBuckets(cmd, args)
+			}
+			UpdateRecentBuckets(args[0])
+			return cmdStreamingListFiles(cmd, args)
+		},
+	}
+
+	// Quick info command
+	quickInfoCmd := &cobra.Command{
+		Use:   "info <bucket> <file>",
+		Short: "Quick file info (alias for files-streaming info)",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			UpdateRecentBuckets(args[0])
+			UpdateRecentFiles(args[1])
+			return cmdStreamingFileInfo(cmd, args)
+		},
+	}
+
+	// Add quick commands to root
+	rootCmd.AddCommand(quickUploadCmd)
+	rootCmd.AddCommand(quickDownloadCmd)
+	rootCmd.AddCommand(quickListCmd)
+	rootCmd.AddCommand(quickInfoCmd)
+}
+
+func copyFlags(dst, src *cobra.Command) {
+	src.Flags().VisitAll(func(flag *pflag.Flag) {
+		dst.Flags().AddFlag(flag)
+	})
+}
+
 func main() {
 	initFlags()
+	initEnhancements()
 	environment.Register(monkit.Default)
 	log.SetOutput(os.Stderr)
 
