@@ -156,7 +156,7 @@ func New(address string, maxConcurrency int, blockPartSize int64, useConnectionP
 
 	keyLength := len(s.encryptionKey)
 	if keyLength != 0 && keyLength != 32 {
-		return nil, errSDK.Errorf("encyption key length should be 32 bytes long")
+		return nil, errSDK.Errorf("encryption key length should be 32 bytes long")
 	}
 
 	if s.parityBlocksCount > s.streamingMaxBlocksInChunk/2 {
