@@ -182,6 +182,13 @@ func (sdk *StreamingAPI) Upload(ctx context.Context, upload FileUpload, reader i
 	fileUploadChunksCh := make(chan FileChunkUpload, sdk.chunkBuffer)
 	var totalSize atomic.Int64
 
+	pool := newConnectionPool()
+	defer func() {
+		if err := pool.close(); err != nil {
+			slog.Warn("failed to close connection", slog.String("error", err.Error()))
+		}
+	}()
+
 	// Start goroutine for reading data and creating chunks
 	g.Go(func() error {
 		defer close(fileUploadChunksCh)
@@ -238,11 +245,11 @@ func (sdk *StreamingAPI) Upload(ctx context.Context, upload FileUpload, reader i
 					return nil
 				}
 
-				if err := dagRoot.AddLink(chunkUpload.ChunkCID, chunkUpload.RawDataSize, chunkUpload.ProtoNodeSize); err != nil {
+				if err := dagRoot.AddLink(chunkUpload.ChunkCID, chunkUpload.RawDataSize, chunkUpload.EncodedSize); err != nil {
 					return errSDK.Wrap(err)
 				}
 
-				if err := sdk.uploadChunk(chunkCtx, chunkUpload, upload.blocksCounter, upload.bytesCounter); err != nil {
+				if err := sdk.uploadChunk(chunkCtx, chunkUpload, pool, upload.blocksCounter, upload.bytesCounter); err != nil {
 					return errSDK.Wrap(err)
 				}
 				upload.chunksCounter.Add(1)
@@ -354,6 +361,13 @@ func (sdk *StreamingAPI) Download(ctx context.Context, fileDownload FileDownload
 		}
 	}
 
+	pool := newConnectionPool()
+	defer func() {
+		if err := pool.close(); err != nil {
+			slog.Warn("failed to close connection", slog.String("error", err.Error()))
+		}
+	}()
+
 	for _, chunk := range fileDownload.Chunks {
 		select {
 		case <-ctx.Done():
@@ -366,7 +380,7 @@ func (sdk *StreamingAPI) Download(ctx context.Context, fileDownload FileDownload
 			return err
 		}
 
-		if err := sdk.downloadChunkBlocks(ctx, fileDownload.StreamID, chunkDownload, fileEncKey, downloadEC, writer); err != nil {
+		if err := sdk.downloadChunkBlocks(ctx, pool, fileDownload.StreamID, chunkDownload, fileEncKey, downloadEC, writer); err != nil {
 			return err
 		}
 	}
@@ -392,6 +406,13 @@ func (sdk *StreamingAPI) DownloadV2(ctx context.Context, fileDownload FileDownlo
 		}
 	}
 
+	pool := newConnectionPool()
+	defer func() {
+		if err := pool.close(); err != nil {
+			slog.Warn("failed to close connection", slog.String("error", err.Error()))
+		}
+	}()
+
 	for _, chunk := range fileDownload.Chunks {
 		select {
 		case <-ctx.Done():
@@ -404,7 +425,7 @@ func (sdk *StreamingAPI) DownloadV2(ctx context.Context, fileDownload FileDownlo
 			return err
 		}
 
-		if err := sdk.downloadChunkBlocks(ctx, fileDownload.StreamID, chunkDownload, fileEncKey, downloadEC, writer); err != nil {
+		if err := sdk.downloadChunkBlocks(ctx, pool, fileDownload.StreamID, chunkDownload, fileEncKey, downloadEC, writer); err != nil {
 			return err
 		}
 	}
@@ -431,6 +452,13 @@ func (sdk *StreamingAPI) DownloadRandom(ctx context.Context, fileDownload FileDo
 		return errSDK.Wrap(err)
 	}
 
+	pool := newConnectionPool()
+	defer func() {
+		if err := pool.close(); err != nil {
+			slog.Warn("failed to close connection", slog.String("error", err.Error()))
+		}
+	}()
+
 	for _, chunk := range fileDownload.Chunks {
 		select {
 		case <-ctx.Done():
@@ -443,7 +471,7 @@ func (sdk *StreamingAPI) DownloadRandom(ctx context.Context, fileDownload FileDo
 			return err
 		}
 
-		if err := sdk.downloadRandomChunkBlocks(ctx, fileDownload.StreamID, chunkDownload, fileEncKey, downloadEC, writer); err != nil {
+		if err := sdk.downloadRandomChunkBlocks(ctx, pool, fileDownload.StreamID, chunkDownload, fileEncKey, downloadEC, writer); err != nil {
 			return err
 		}
 	}
@@ -508,27 +536,20 @@ func (sdk *StreamingAPI) createChunkUpload(ctx context.Context, fileUpload FileU
 	}
 
 	return FileChunkUpload{
-		StreamID:      fileUpload.StreamID,
-		Index:         index,
-		ChunkCID:      chunkDAG.CID,
-		RawDataSize:   chunkDAG.RawDataSize,
-		ProtoNodeSize: chunkDAG.ProtoNodeSize,
-		Blocks:        chunkDAG.Blocks,
+		StreamID:    fileUpload.StreamID,
+		Index:       index,
+		ChunkCID:    chunkDAG.CID,
+		RawDataSize: chunkDAG.RawDataSize,
+		EncodedSize: chunkDAG.EncodedSize,
+		Blocks:      chunkDAG.Blocks,
 	}, nil
 }
 
-func (sdk *StreamingAPI) uploadChunk(ctx context.Context, fileChunkUpload FileChunkUpload, blockCount, bytesCount *atomic.Int64) (err error) {
+func (sdk *StreamingAPI) uploadChunk(ctx context.Context, fileChunkUpload FileChunkUpload, pool *connectionPool, blockCount, bytesCount *atomic.Int64) (err error) {
 	defer mon.Task()(&ctx, fileChunkUpload)(&err)
 
 	g, ctx := errgroup.WithContext(ctx)
 	g.SetLimit(sdk.maxConcurrency)
-
-	pool := newConnectionPool()
-	defer func() {
-		if err := pool.close(); err != nil {
-			slog.Warn("failed to close connection", slog.String("error", err.Error()))
-		}
-	}()
 
 	protoChunk := toProtoChunk(
 		fileChunkUpload.StreamID,
@@ -539,7 +560,7 @@ func (sdk *StreamingAPI) uploadChunk(ctx context.Context, fileChunkUpload FileCh
 	for i, block := range fileChunkUpload.Blocks {
 		deriveCtx := context.WithoutCancel(ctx)
 		g.Go(func() (err error) {
-			defer mon.Task()(&deriveCtx, block.CID)(&err)
+			defer mon.TaskNamed("(*StreamingAPI).uploadBlockFull")(&deriveCtx)(&err)
 
 			client, closer, err := pool.createStreamingClient(block.NodeAddress, sdk.useConnectionPool)
 			if err != nil {
@@ -667,6 +688,7 @@ func (sdk *StreamingAPI) createChunkDownloadV2(ctx context.Context, streamID str
 
 func (sdk *StreamingAPI) downloadChunkBlocks(
 	ctx context.Context,
+	pool *connectionPool,
 	streamID string,
 	chunkDownload FileChunkDownload,
 	fileEncryptionKey []byte,
@@ -679,13 +701,6 @@ func (sdk *StreamingAPI) downloadChunkBlocks(
 	g, ctx := errgroup.WithContext(ctx)
 	g.SetLimit(sdk.maxConcurrency)
 
-	pool := newConnectionPool()
-	defer func() {
-		if err := pool.close(); err != nil {
-			slog.Warn("failed to close connection", slog.String("error", err.Error()))
-		}
-	}()
-
 	type retrievedBlock struct {
 		Pos  int
 		CID  string
@@ -697,7 +712,7 @@ func (sdk *StreamingAPI) downloadChunkBlocks(
 		deriveCtx := context.WithoutCancel(ctx)
 
 		g.Go(func() (err error) {
-			defer mon.Task()(&deriveCtx, block.CID)(&err)
+			defer mon.TaskNamed("(*StreamingAPI).downloadBlock")(&deriveCtx)(&err)
 
 			blockData, err := sdk.fetchBlockData(ctx, pool, streamID, chunkDownload.CID, chunkDownload.Index, int64(i), block)
 			if err != nil {
@@ -755,6 +770,7 @@ func (sdk *StreamingAPI) downloadChunkBlocks(
 // !!!!use only with erasure coding!!!!
 func (sdk *StreamingAPI) downloadRandomChunkBlocks(
 	ctx context.Context,
+	pool *connectionPool,
 	streamID string,
 	chunkDownload FileChunkDownload,
 	fileEncryptionKey []byte,
@@ -766,13 +782,6 @@ func (sdk *StreamingAPI) downloadRandomChunkBlocks(
 
 	g, ctx := errgroup.WithContext(ctx)
 	g.SetLimit(sdk.maxConcurrency)
-
-	pool := newConnectionPool()
-	defer func() {
-		if err := pool.close(); err != nil {
-			slog.Warn("failed to close connection", slog.String("error", err.Error()))
-		}
-	}()
 
 	type retrievedBlock struct {
 		Pos  int
@@ -797,7 +806,7 @@ func (sdk *StreamingAPI) downloadRandomChunkBlocks(
 	for index, block := range blocksMap {
 		deriveCtx := context.WithoutCancel(ctx)
 		g.Go(func() (err error) {
-			defer mon.Task()(&deriveCtx, block.CID)(&err)
+			defer mon.TaskNamed("(*StreamingAPI).downloadRandomBlock")(&deriveCtx)(&err)
 
 			blockData, err := sdk.fetchBlockData(ctx, pool, streamID, chunkDownload.CID, chunkDownload.Index, int64(index), block)
 			if err != nil {

@@ -19,15 +19,21 @@ test:
 test_quick:
 	@go test -v ./...
 
-.PHONY: test_sdk
-test_sdk:
-  ## if PRIVATE_KEY is absent, ipc tests will be skipped
-	@NODE_RPC_ADDRESS=127.0.0.1:5000 PRIVATE_KEY=${PRIVATE_KEY} go test -v -count=1 -timeout 10m ./sdk/sdk_test.go ./sdk/sdk_ipc_test.go
+.PHONY: test_sdk_ipc
+test_sdk_ipc:
+	@NODE_RPC_ADDRESS=127.0.0.1:5000 PRIVATE_KEY=$(PRIVATE_KEY) DIAL_URI=$(DIAL_URI) go test -v -count=1 -timeout 10m -run '^TestIPC' ./sdk/...
 
-.PHONY: test_cli
-test_cli:
-  ## if PRIVATE_KEY is absent, ipc tests will be skipped
-	@NODE_RPC_ADDRESS=127.0.0.1:5000 PRIVATE_KEY=${PRIVATE_KEY} go test -v -count=1 -timeout 10m ./cmd/akavecli/...
+.PHONY: test_sdk_streaming
+test_sdk_streaming:
+	@NODE_RPC_ADDRESS=127.0.0.1:5000 go test -v -count=1 -timeout 10m -run '^TestStreaming' ./sdk/...
+
+.PHONY: test_cli_ipc
+test_cli_ipc:
+	@NODE_RPC_ADDRESS=127.0.0.1:5000 PRIVATE_KEY=$(PRIVATE_KEY) go test -v -count=1 -timeout 6m -run '^TestIPC' ./cmd/akavecli/...
+
+.PHONY: test_cli_streaming
+test_cli_streaming:
+	@NODE_RPC_ADDRESS=127.0.0.1:5000 go test -v -count=1 -timeout 6m -run '^TestStreaming' ./cmd/akavecli/...
 
 .PHONY: check
 check: # for local usage

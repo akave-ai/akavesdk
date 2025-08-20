@@ -25,14 +25,11 @@ import (
 
 // Config represents configuration for the storage contract client.
 type Config struct {
-	DialURI                        string        `usage:"addr of ipc endpoint"`
-	PrivateKey                     string        `usage:"hex private key used to sign transactions"`
-	StorageContractAddress         string        `usage:"hex storage contract address"`
-	AccessContractAddress          string        `usage:"hex access manager contract address"`
-	PolicyFactoryContractAddress   string        `usage:"hex policy factory contract address"`
-	UseCustomValues                bool          `usage:"use custom blockchain values (gas price, gas limit, nonce)"`
-	GasPriceCheckInterval          time.Duration `usage:"gas price check loop renewal interval"`
-	NumberOfConcurrentTransactions int64         `usage:"number of concurrent fill chunk block transactions"`
+	DialURI                      string `usage:"addr of ipc endpoint"`
+	PrivateKey                   string `usage:"hex private key used to sign transactions"`
+	StorageContractAddress       string `usage:"hex storage contract address"`
+	AccessContractAddress        string `usage:"hex access manager contract address"`
+	PolicyFactoryContractAddress string `usage:"hex policy factory contract address"`
 }
 
 // StorageData represents the struct for signing.
@@ -50,14 +47,11 @@ type StorageData struct {
 // DefaultConfig returns default configuration for the ipc.
 func DefaultConfig() Config {
 	return Config{
-		DialURI:                        "",
-		PrivateKey:                     "",
-		StorageContractAddress:         "",
-		AccessContractAddress:          "",
-		PolicyFactoryContractAddress:   "",
-		UseCustomValues:                false,
-		GasPriceCheckInterval:          5 * time.Second,
-		NumberOfConcurrentTransactions: 10,
+		DialURI:                      "",
+		PrivateKey:                   "",
+		StorageContractAddress:       "",
+		AccessContractAddress:        "",
+		PolicyFactoryContractAddress: "",
 	}
 }
 
@@ -70,8 +64,15 @@ type Client struct {
 	PolicyFactoryAbi *abi.ABI
 	Auth             *bind.TransactOpts
 	Eth              *ethclient.Client
+	Addresses        ContractsAddresses
 	chainID          *big.Int
-	ticker           *time.Ticker
+}
+
+// ContractsAddresses contains addresses of deployed contracts.
+type ContractsAddresses struct {
+	Storage       string
+	AccessManager string
+	PolicyFactory string
 }
 
 // Dial creates eth client, new smart-contract instance, auth.
@@ -124,7 +125,11 @@ func Dial(ctx context.Context, config Config) (*Client, error) {
 		Auth:             auth,
 		chainID:          chainID,
 		Eth:              client,
-		ticker:           time.NewTicker(200 * time.Millisecond),
+		Addresses: ContractsAddresses{
+			Storage:       config.StorageContractAddress,
+			AccessManager: config.AccessContractAddress,
+			PolicyFactory: config.PolicyFactoryContractAddress,
+		},
 	}
 
 	if config.PolicyFactoryContractAddress != "" {
@@ -137,116 +142,145 @@ func Dial(ctx context.Context, config Config) (*Client, error) {
 	return ipcClient, nil
 }
 
-// DeployStorage deploys storage smart contract, returns it's client.
-func DeployStorage(ctx context.Context, config Config) (*Client, string, string, error) {
+// DeployContracts deploys smart contracts, returns client.
+func DeployContracts(ctx context.Context, config Config) (*Client, error) {
 	ethClient, err := ethclient.Dial(config.DialURI)
 	if err != nil {
-		return &Client{}, "", "", err
+		return &Client{}, err
 	}
 
 	privateKey, err := crypto.HexToECDSA(config.PrivateKey)
 	if err != nil {
-		return &Client{}, "", "", err
+		return &Client{}, err
 	}
 
 	chainID, err := ethClient.ChainID(ctx)
 	if err != nil {
-		return &Client{}, "", "", err
+		return &Client{}, err
 	}
 
 	auth, err := bind.NewKeyedTransactorWithChainID(privateKey, chainID)
 	if err != nil {
-		return &Client{}, "", "", err
+		return &Client{}, err
 	}
 
 	client := &Client{
-		Auth:   auth,
-		Eth:    ethClient,
-		ticker: time.NewTicker(200 * time.Millisecond),
+		Auth:    auth,
+		Eth:     ethClient,
+		chainID: chainID,
 	}
 
 	akaveTokenAddr, tx, token, err := contracts.DeployAkaveToken(auth, ethClient)
 	if err != nil {
-		return &Client{}, "", "", err
+		return &Client{}, err
 	}
 
 	if err := client.WaitForTx(ctx, tx.Hash()); err != nil {
-		return &Client{}, "", "", err
+		return &Client{}, err
 	}
 
-	storageAddress, tx, storage, err := contracts.DeployStorage(auth, ethClient, akaveTokenAddr)
+	storageImplAddress, tx, _, err := contracts.DeployStorage(auth, ethClient)
 	if err != nil {
-		return &Client{}, "", "", err
+		return &Client{}, err
+	}
+	if err := client.WaitForTx(ctx, tx.Hash()); err != nil {
+		return &Client{}, err
 	}
 
-	if err := client.WaitForTx(ctx, tx.Hash()); err != nil {
-		return &Client{}, "", "", err
+	storageABI, err := contracts.StorageMetaData.GetAbi()
+	if err != nil {
+		return &Client{}, err
 	}
+
+	initData, err := storageABI.Pack("initialize", akaveTokenAddr)
+	if err != nil {
+		return &Client{}, err
+	}
+
+	storageProxyAddress, tx, _, err := contracts.DeployERC1967Proxy(
+		auth,
+		ethClient,
+		storageImplAddress,
+		initData,
+	)
+	if err != nil {
+		return &Client{}, err
+	}
+	if err := client.WaitForTx(ctx, tx.Hash()); err != nil {
+		return &Client{}, err
+	}
+
+	storage, err := contracts.NewStorage(storageProxyAddress, ethClient)
+	if err != nil {
+		return &Client{}, err
+	}
+
 	client.Storage = storage
-	client.chainID = chainID
+	client.Addresses.Storage = storageProxyAddress.String()
 
-	minterRole, err := token.MINTERROLE(&bind.CallOpts{})
+	minterRole, err := token.MINTERROLE(&bind.CallOpts{Context: ctx})
 	if err != nil {
-		return &Client{}, "", "", err
+		return &Client{}, err
 	}
 
-	tx, err = token.GrantRole(auth, minterRole, storageAddress)
+	tx, err = token.GrantRole(auth, minterRole, storageProxyAddress)
 	if err != nil {
-		return &Client{}, "", "", err
+		return &Client{}, err
 	}
 
 	if err := client.WaitForTx(ctx, tx.Hash()); err != nil {
-		return &Client{}, "", "", err
+		return &Client{}, err
 	}
 
-	accessAddress, tx, accessManager, err := contracts.DeployAccessManager(client.Auth, client.Eth, storageAddress)
+	accessAddress, tx, accessManager, err := contracts.DeployAccessManager(client.Auth, client.Eth, storageProxyAddress)
 	if err != nil {
-		return &Client{}, "", "", err
+		return &Client{}, err
 	}
+	if err := client.WaitForTx(ctx, tx.Hash()); err != nil {
+		return &Client{}, err
+	}
+
 	client.AccessManager = accessManager
-
-	if err := client.WaitForTx(ctx, tx.Hash()); err != nil {
-		return &Client{}, "", "", err
-	}
+	client.Addresses.AccessManager = accessAddress.String()
 
 	tx, err = storage.SetAccessManager(client.Auth, accessAddress)
 	if err != nil {
-		return &Client{}, "", "", err
+		return &Client{}, err
 	}
-
 	if err := client.WaitForTx(ctx, tx.Hash()); err != nil {
-		return &Client{}, "", "", err
+		return &Client{}, err
 	}
 
 	baseListPolicyAddress, tx, _, err := contracts.DeployListPolicy(client.Auth, client.Eth)
 	if err != nil {
-		return &Client{}, "", "", err
+		return &Client{}, err
 	}
-
 	if err := client.WaitForTx(ctx, tx.Hash()); err != nil {
-		return &Client{}, "", "", err
+		return &Client{}, err
 	}
 
-	_, tx, client.PolicyFactory, err = contracts.DeployPolicyFactory(client.Auth, client.Eth, baseListPolicyAddress)
+	policyFactoryAddress, tx, policyFactory, err := contracts.DeployPolicyFactory(client.Auth, client.Eth, baseListPolicyAddress)
 	if err != nil {
-		return &Client{}, "", "", err
+		return &Client{}, err
+	}
+	if err := client.WaitForTx(ctx, tx.Hash()); err != nil {
+		return &Client{}, err
 	}
 
-	if err := client.WaitForTx(ctx, tx.Hash()); err != nil {
-		return &Client{}, "", "", err
-	}
+	client.PolicyFactory = policyFactory
+	client.Addresses.PolicyFactory = policyFactoryAddress.String()
 
 	client.ListPolicyAbi, err = contracts.ListPolicyMetaData.GetAbi()
 	if err != nil {
-		return &Client{}, "", "", err
+		return &Client{}, err
 	}
 
 	client.PolicyFactoryAbi, err = contracts.PolicyFactoryMetaData.GetAbi()
 	if err != nil {
-		return &Client{}, "", "", err
+		return &Client{}, err
 	}
 
-	return client, storageAddress.String(), accessAddress.String(), nil
+	return client, nil
 }
 
 // ChainID returns chain id.
@@ -358,11 +392,26 @@ func (client *Client) WaitForTx(ctx context.Context, hash common.Hash) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	receipt, err := client.Eth.TransactionReceipt(ctx, hash)
+	if err == nil {
+		if receipt.Status == 1 {
+			return nil
+		}
+
+		return errs.New("transaction failed")
+	}
+	if !errors.Is(err, ethereum.NotFound) {
+		return err
+	}
+
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-client.ticker.C:
+		case <-ticker.C:
 			receipt, err := client.Eth.TransactionReceipt(ctx, hash)
 			if err == nil {
 				if receipt.Status == 1 {

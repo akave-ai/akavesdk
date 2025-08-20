@@ -20,7 +20,6 @@ import (
 	"github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/sync"
 	format "github.com/ipfs/go-ipld-format"
-	"github.com/zeebo/errs/v2"
 
 	"github.com/akave-ai/akavesdk/private/encryption"
 )
@@ -80,10 +79,10 @@ func (root *DAGRoot) Build() (cid.Cid, error) {
 
 // ChunkDAG is a merkledag of data blocks in a chunk.
 type ChunkDAG struct {
-	CID           cid.Cid
-	RawDataSize   uint64 // size of data read from disk.
-	ProtoNodeSize uint64 // size of the ProtoNode in the DAG(RawsDataSize + protonode overhead).
-	Blocks        []FileBlockUpload
+	CID         cid.Cid
+	RawDataSize uint64 // size of data read from disk.
+	EncodedSize uint64 // encoded size.
+	Blocks      []FileBlockUpload
 }
 
 // BuildDAG builds the ChunkDAG of a file.
@@ -147,16 +146,16 @@ func BuildDAG(ctx context.Context, reader io.Reader, blockSize int64, encKey []b
 			})
 		}
 	}
-	rawDataSize, protoNodeSize, err := nodeSizes(rootNode)
+	rawDataSize, encodedSize, err := nodeSizes(rootNode)
 	if err != nil {
 		return ChunkDAG{}, err
 	}
 
 	return ChunkDAG{
-		CID:           rootNode.Cid(),
-		RawDataSize:   rawDataSize,
-		ProtoNodeSize: protoNodeSize,
-		Blocks:        blocks,
+		CID:         rootNode.Cid(),
+		RawDataSize: rawDataSize,
+		EncodedSize: encodedSize,
+		Blocks:      blocks,
 	}, nil
 }
 
@@ -166,20 +165,25 @@ func nodeSizes(node format.Node) (uint64, uint64, error) {
 		return 0, 0, fmt.Errorf("given node %s is not a ProtoNode", node.Cid().String())
 	}
 
-	rawDataSize, err1 := unixfs.DataSize(protoNode.Data())
-	protoNodeSize, err2 := node.Size()
-	if err1 != nil || err2 != nil {
-		return 0, 0, errs.Combine(err1, err2)
+	rawDataSize, err := unixfs.DataSize(protoNode.Data())
+	if err != nil {
+		return 0, 0, err
 	}
 
-	return rawDataSize, protoNodeSize, nil
-}
-
-func blockByCID(blocks []FileBlockUpload, cid string) (FileBlockUpload, bool) {
-	for _, v := range blocks {
-		if v.CID == cid {
-			return v, true
+	if len(node.Links()) == 0 {
+		protoNodeSize, err := node.Size()
+		if err != nil {
+			return 0, 0, err
 		}
+
+		return rawDataSize, protoNodeSize, nil
 	}
-	return FileBlockUpload{}, false
+
+	var encodedSize uint64
+
+	for _, link := range node.Links() {
+		encodedSize += link.Size
+	}
+
+	return rawDataSize, encodedSize, nil
 }

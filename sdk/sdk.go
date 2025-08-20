@@ -9,16 +9,16 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math/rand/v2"
 	"strings"
 	"time"
 
 	"github.com/ipfs/boxo/ipld/merkledag"
+	"github.com/ipfs/boxo/ipld/unixfs"
+	"github.com/ipfs/boxo/ipld/unixfs/importer/helpers"
 	"github.com/ipfs/go-cid"
-	"github.com/ipfs/go-unixfs"
-	"github.com/ipfs/go-unixfs/importer/helpers"
 	"github.com/spacemonkeygo/monkit/v3"
 	"github.com/zeebo/errs/v2"
-	"golang.org/x/exp/rand"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
@@ -317,6 +317,42 @@ func (sdk *SDK) DeleteBucket(ctx context.Context, bucketName string) (err error)
 	return nil
 }
 
+// MonkitStats are the monkit stats for the sdk package.
+type MonkitStats struct {
+	Name         string
+	Successes    int64
+	Errors       map[string]int64
+	Highwater    int64
+	SuccessTimes *monkit.DurationDist
+	FailureTimes *monkit.DurationDist
+}
+
+// GetMonkitStats returns monkit statistics for the sdk package.
+func GetMonkitStats() []MonkitStats {
+	var stats []MonkitStats
+
+	mon.Funcs(func(f *monkit.Func) {
+		name := f.FullName()
+		success := f.Success()
+		errors := f.Errors()
+		highwater := f.Highwater()
+
+		// Only include stats for functions that have been called
+		if success > 0 || len(errors) > 0 {
+			stats = append(stats, MonkitStats{
+				Name:         name,
+				Successes:    success,
+				Errors:       errors,
+				Highwater:    highwater,
+				SuccessTimes: f.SuccessTimes(),
+				FailureTimes: f.FailureTimes(),
+			})
+		}
+	})
+
+	return stats
+}
+
 // ExtractBlockData unwraps the block data from the block(either protobuf or raw).
 func ExtractBlockData(idStr string, data []byte) ([]byte, error) {
 	id, err := cid.Decode(idStr)
@@ -373,7 +409,7 @@ func (retry withRetry) do(ctx context.Context, f func() (bool, error)) error {
 
 	sleep := func(attempt int, base time.Duration) time.Duration {
 		backoff := base * (1 << attempt)
-		jitter := time.Duration(rand.Int63n(int64(base)))
+		jitter := time.Duration(rand.Int64N(int64(base)))
 		return backoff + jitter
 	}
 

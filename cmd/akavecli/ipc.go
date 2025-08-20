@@ -346,7 +346,7 @@ func cmdListBucketsIPC(cmd *cobra.Command, args []string) (err error) {
 		return err
 	}
 
-	buckets, err := ipc.ListBuckets(ctx)
+	buckets, err := ipc.ListBuckets(ctx, bucketListOffset, bucketListLimit)
 	if err != nil {
 		return fmt.Errorf("failed to list buckets: %w", err)
 	}
@@ -387,7 +387,7 @@ func cmdListFilesIPC(cmd *cobra.Command, args []string) (err error) {
 		return err
 	}
 
-	files, err := ipc.ListFiles(ctx, bucketName)
+	files, err := ipc.ListFiles(ctx, bucketName, fileListOffset, fileListLimit)
 	if err != nil {
 		return fmt.Errorf("failed to list files: %w", err)
 	}
@@ -434,7 +434,7 @@ func cmdFileInfoIPC(cmd *cobra.Command, args []string) (err error) {
 		return fmt.Errorf("failed to get file info: %w", err)
 	}
 
-	cmd.PrintErrf("File: Name=%s, RootCID=%s, EncodedSize=%d, CreatedAt=%s\n", file.Name, file.RootCID, file.EncodedSize, file.CreatedAt)
+	cmd.PrintErrf("File: Name=%s, RootCID=%s, EncodedSize=%d, ActualSize=%d CreatedAt=%s\n", file.Name, file.RootCID, file.EncodedSize, file.ActualSize, file.CreatedAt)
 
 	return nil
 }
@@ -471,11 +471,13 @@ func cmdFileUploadIPC(cmd *cobra.Command, args []string) (err error) {
 		return err
 	}
 
-	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool,
+	sdkOptions := []sdk.Option{
 		sdk.WithPrivateKey(privKey),
 		sdk.WithEncryptionKey(key),
 		sdk.WithErasureCoding(parityBlocks()),
-	)
+	}
+
+	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool, sdkOptions...)
 	if err != nil {
 		return err
 	}
@@ -539,11 +541,13 @@ func cmdFileDownloadIPC(cmd *cobra.Command, args []string) (err error) {
 		return err
 	}
 
-	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool,
+	sdkOptions := []sdk.Option{
 		sdk.WithPrivateKey(privKey),
 		sdk.WithEncryptionKey(key),
 		sdk.WithErasureCoding(parityBlocks()),
-	)
+	}
+
+	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool, sdkOptions...)
 	if err != nil {
 		return err
 	}
@@ -595,6 +599,7 @@ func cmdFileDownloadIPC(cmd *cobra.Command, args []string) (err error) {
 	chunks, blocks, finalBytes := fileDownload.Stats()
 	cmd.PrintErrf("File downloaded successfully: Name=%s, Path=%s, Size=%d, Chunks=%d, Blocks=%d\n",
 		fileName, filepath.Join(destPath, fileName), finalBytes, chunks, blocks)
+
 	return nil
 }
 
@@ -631,35 +636,21 @@ func cmdFileDeleteIPC(cmd *cobra.Command, args []string) (err error) {
 		return err
 	}
 
-	cmd.PrintErrf("File successfully deleted: Name=%s", fileName)
+	cmd.PrintErrf("File successfully deleted: Name=%s\n", fileName)
 	return nil
 }
 
 // getWalletPrivateKey returns the private key either from the flag or from a wallet.
-// It also returns the wallet address and name if a wallet was used.
+// It also prints the wallet address and name if a wallet was used.
 func getWalletPrivateKey(cmd *cobra.Command) (privKey string, err error) {
 	if privateKey != "" {
 		return privateKey, nil
 	}
 
 	var walletAddress string
-	privKey, walletAddress, err = PrivateKeyFromWallet(accountName)
+	privKey, walletAddress, name, err := PrivateKeyFromWallet(accountName)
 	if err != nil {
 		return "", fmt.Errorf("%w", err)
-	}
-
-	name := accountName
-	if name == "" {
-		// If no account was specified, we used the first available wallet
-		// Get the name from the address for display purposes
-		entries, _ := os.ReadDir(keystoreDir)
-		for _, entry := range entries {
-			if !strings.HasSuffix(entry.Name(), walletFileExt) {
-				continue
-			}
-			name = strings.TrimSuffix(entry.Name(), walletFileExt)
-			break
-		}
 	}
 
 	cmd.PrintErrf("Using wallet account: %s (%s)\n", name, walletAddress)

@@ -1,0 +1,11 @@
+autofix: false
+
+ignore:
+  - .git/
+  - .env
+
+rules:
+  end-of-file:
+    enable: true
+    disable-autofix: false
+    single-new-line: true

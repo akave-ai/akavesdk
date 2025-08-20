@@ -7,14 +7,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"math/big"
 	"net/http"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -23,7 +20,6 @@ import (
 	commp "github.com/filecoin-project/go-fil-commp-hashhash"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/stretchr/testify/require"
-	"github.com/zeebo/errs"
 
 	"github.com/akave-ai/akavesdk/private/ipc/contracts"
 	"github.com/akave-ai/akavesdk/private/ipctest"
@@ -59,11 +55,11 @@ func TestContractPDP(t *testing.T) {
 
 	verifierAddress, tx, pdpVerifier, err := contracts.DeployPDPVerifier(auth, ethClient, big.NewInt(int64(challengeFinality)))
 	require.NoError(t, err)
-	require.NoError(t, waitForTx(ethClient, tx.Hash()))
+	require.NoError(t, ipctest.WaitForTx(ctx, ethClient, tx.Hash()))
 
 	sinkAddress, tx, _, err := contracts.DeploySink(auth, ethClient)
 	require.NoError(t, err)
-	require.NoError(t, waitForTx(ethClient, tx.Hash()))
+	require.NoError(t, ipctest.WaitForTx(ctx, ethClient, tx.Hash()))
 
 	pdpContract, err := contracts.NewPDPVerifierFilterer(verifierAddress, wsClient)
 	require.NoError(t, err)
@@ -82,7 +78,7 @@ func TestContractPDP(t *testing.T) {
 
 	tx, err = pdpVerifier.CreateProofSet(&authWithValue, sinkAddress, nil)
 	require.NoError(t, err)
-	require.NoError(t, waitForTx(ethClient, tx.Hash()))
+	require.NoError(t, ipctest.WaitForTx(ctx, ethClient, tx.Hash()))
 
 	select {
 	case err := <-sub.Err():
@@ -130,20 +126,20 @@ func TestContractPDP(t *testing.T) {
 
 	tx, err = pdpVerifier.AddRoots(auth, setId, rootData, []byte{})
 	require.NoError(t, err)
-	require.NoError(t, waitForTx(ethClient, tx.Hash()))
+	require.NoError(t, ipctest.WaitForTx(ctx, ethClient, tx.Hash()))
 
 	block, err := ethClient.BlockNumber(ctx)
 	require.NoError(t, err)
 
 	tx, err = pdpVerifier.NextProvingPeriod(auth, setId, big.NewInt(int64(block)+4), nil)
 	require.NoError(t, err)
-	require.NoError(t, waitForTx(ethClient, tx.Hash()))
+	require.NoError(t, ipctest.WaitForTx(ctx, ethClient, tx.Hash()))
 
 	for i := 0; i < 4; i++ {
 		fillBlocks(t)
 	}
 
-	epoch, err := pdpVerifier.GetNextChallengeEpoch(&bind.CallOpts{}, setId)
+	epoch, err := pdpVerifier.GetNextChallengeEpoch(&bind.CallOpts{Context: ctx}, setId)
 	require.NoError(t, err)
 
 	var proofsToProve []contracts.PDPVerifierProof
@@ -175,7 +171,7 @@ func TestContractPDP(t *testing.T) {
 
 	tx, err = pdpVerifier.ProvePossession(&authWithValue, setId, proofsToProve)
 	require.NoError(t, err)
-	require.NoError(t, waitForTx(ethClient, tx.Hash()))
+	require.NoError(t, ipctest.WaitForTx(ctx, ethClient, tx.Hash()))
 }
 
 func fillBlocks(t *testing.T) {
@@ -195,31 +191,6 @@ func fillBlocks(t *testing.T) {
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer require.NoError(t, resp.Body.Close())
-}
-
-func waitForTx(client *ethclient.Client, hash common.Hash) error {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	ticker := time.NewTicker(200 * time.Millisecond)
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			receipt, err := client.TransactionReceipt(ctx, hash)
-			if err == nil {
-				if receipt.Status == 1 {
-					return nil
-				}
-
-				return errs.New("transaction failed")
-			}
-			if !errors.Is(err, ethereum.NotFound) {
-				return err
-			}
-		}
-	}
 }
 
 // Helper function to pad bytes on the left with zeros.

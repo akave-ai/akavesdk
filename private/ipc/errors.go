@@ -4,10 +4,8 @@
 package ipc
 
 import (
-	"encoding/hex"
 	"errors"
 
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rpc"
 )
 
@@ -107,6 +105,8 @@ func ErrorHashToError(err error) error {
 				return errors.New("NotSignedByBucketOwner")
 			case "0x923b8cbb":
 				return errors.New("NonceAlreadyUsed")
+			case "0x9605a010":
+				return errors.New("OffsetOutOfBounds")
 			default:
 				return err
 			}
@@ -116,23 +116,12 @@ func ErrorHashToError(err error) error {
 	return err
 }
 
-func parseErrorsToHashes() []string {
-	errorsContract := []string{"BucketAlreadyExists()", "BucketInvalid()", "BucketInvalidOwner()", "BucketNonexists()", "BucketNonempty()",
-		"FileAlreadyExists()", "FileInvalid()", "FileNonexists()", "FileNonempty()", "FileNameDuplicate()", "FileFullyUploaded()", "FileChunkDuplicate()",
-		"BlockAlreadyExists()", "BlockInvalid()", "BlockNonexists()", "InvalidArrayLength(uint256 cidsLength, uint256 sizesLength)", "InvalidFileBlocksCount()",
-		"InvalidLastBlockSize()", "InvalidEncodedSize()", "InvalidFileCID()", "IndexMismatch()", "NoPolicy()", "FileDoesNotExist()", "BucketNotFound()", "NotBucketOwner()",
-		"ChunkCIDMismatch(bytes fileCID)", "FileNotFilled()", "BlockAlreadyFilled()", "MathOverflowedMulDiv()", "NotWhitelisted()", "InvalidAddress()", "AlreadyWhitelisted()",
-		"ECDSAInvalidSignature()", "ECDSAInvalidSignatureLength(uint256 length)", "error ECDSAInvalidSignatureS(bytes32 s)", "Create2EmptyBytecode()", "CloneArgumentsTooLong()",
-		"NotThePolicyOwner()", "InvalidBlocksAmount()", "InvalidBlockIndex()", "LastChunkDuplicate()", "FileNotExists()", "Invalid signature: Not signed by bucket owner",
-		"Nonce already used"}
-
-	errHashes := make([]string, 0)
-
-	for _, errC := range errorsContract {
-		hash := crypto.Keccak256([]byte(errC))
-		errMsg := "0x" + hex.EncodeToString(hash[:4])
-		errHashes = append(errHashes, errMsg)
+// IgnoreOffsetError checks if the error is related to an offset out of bounds and returns nil if so.
+func IgnoreOffsetError(err error) error {
+	err = ErrorHashToError(err)
+	if err != nil && err.Error() == "OffsetOutOfBounds" {
+		return nil
 	}
 
-	return errHashes
+	return err
 }

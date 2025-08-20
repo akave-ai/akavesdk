@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"strings"
@@ -115,6 +116,7 @@ var (
 	useConnectionPool    bool
 	disableErasureCoding bool
 	filecoinFlag         bool
+	enableSDKMonkitStats bool
 	accountName          string
 
 	// tracing.
@@ -122,6 +124,11 @@ var (
 
 	tracingAgentAddr = "localhost:6831"
 	serviceName      = "akavecli"
+
+	bucketListOffset int64
+	bucketListLimit  int64
+	fileListOffset   int64
+	fileListLimit    int64
 )
 
 // CmdParamsError represents an error related to positional arguments.
@@ -180,9 +187,14 @@ func initFlags() {
 	rootCmd.PersistentFlags().IntVar(&maxConcurrency, "maxConcurrency", 10, "Maximum concurrency level")
 	rootCmd.PersistentFlags().Int64Var(&blockPartSize, "blockPartSize", (memory.KiB * 128).ToInt64(), "Size of each block part")
 	rootCmd.PersistentFlags().BoolVar(&useConnectionPool, "useConnectionPool", true, "Use connection pool")
+	rootCmd.PersistentFlags().BoolVar(&enableSDKMonkitStats, "print-stats", false, "Enable printing SDK monkit stats on shutdown")
 	ipcCmd.PersistentFlags().StringVar(&accountName, "account", "", "Optional: Wallet name to use for IPC operations. If not provided, will use the first available wallet")
 	ipcCmd.PersistentFlags().StringVar(&privateKey, "private-key", "", "Private key for signing IPC transactions")
 	streamingFileDownloadCmd.Flags().BoolVar(&filecoinFlag, "filecoin", false, "downloads data from filecoin if they are already sealed there")
+	ipcBucketListCmd.Flags().Int64Var(&bucketListOffset, "offset", 0, "offset for bucket list pagination")
+	ipcBucketListCmd.Flags().Int64Var(&bucketListLimit, "limit", 20, "limit for bucket list pagination")
+	ipcFileListCmd.Flags().Int64Var(&fileListOffset, "offset", 0, "offset for file list pagination")
+	ipcFileListCmd.Flags().Int64Var(&fileListLimit, "limit", 20, "limit for file list pagination")
 
 	for _, cmd := range []*cobra.Command{ipcFileUploadCmd, ipcFileDownloadCmd, streamingFileUploadCmd, streamingFileDownloadCmd} {
 		cmd.Flags().StringVarP(&encryptionKey, "encryption-key", "e", "", "Encryption key for encrypting file data")
@@ -259,6 +271,10 @@ func main() {
 		if errors.As(err, &paramErr) {
 			_ = cmd.Usage()
 		}
+	}
+
+	if enableSDKMonkitStats {
+		printMonkitStats(sdk.GetMonkitStats(), os.Stderr)
 	}
 }
 
@@ -380,4 +396,36 @@ func parityBlocks() int {
 		return 16
 	}
 	return 0
+}
+
+func printMonkitStats(stats []sdk.MonkitStats, writer io.Writer) {
+	_, _ = fmt.Fprintf(writer, "\n=== SDK Monkit Task Statistics ===\n")
+	for _, stat := range stats {
+		_, _ = fmt.Fprintf(writer, "Function: %s\n", stat.Name)
+		_, _ = fmt.Fprintf(writer, "  Success calls: %d\n", stat.Successes)
+		_, _ = fmt.Fprintf(writer, "  Highwater (max concurrent): %d\n", stat.Highwater)
+
+		if len(stat.Errors) > 0 {
+			_, _ = fmt.Fprintf(writer, "  Errors:\n")
+			for errType, count := range stat.Errors {
+				_, _ = fmt.Fprintf(writer, "    %s: %d\n", errType, count)
+			}
+		}
+
+		// Get timing information
+		if stat.SuccessTimes != nil && stat.SuccessTimes.Count > 0 {
+			_, _ = fmt.Fprintf(writer, "  Success timing (avg): %.2fms\n", float64(stat.SuccessTimes.FullAverage().Milliseconds()))
+			_, _ = fmt.Fprintf(writer, "  Success timing (low/high): %.2fms / %.2fms\n",
+				float64(stat.SuccessTimes.Low.Milliseconds()), float64(stat.SuccessTimes.High.Milliseconds()))
+		}
+
+		if stat.FailureTimes != nil && stat.FailureTimes.Count > 0 {
+			_, _ = fmt.Fprintf(writer, "  Failure timing (avg): %.2fms\n", float64(stat.FailureTimes.FullAverage().Milliseconds()))
+			_, _ = fmt.Fprintf(writer, "  Failure timing (low/high): %.2fms / %.2fms\n",
+				float64(stat.FailureTimes.Low.Milliseconds()), float64(stat.FailureTimes.High.Milliseconds()))
+		}
+
+		_, _ = fmt.Fprintf(writer, "\n")
+	}
+	_, _ = fmt.Fprintf(writer, "=== End SDK Monkit Statistics ===\n\n")
 }

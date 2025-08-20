@@ -233,20 +233,22 @@ func cmdStreamingFileUpload(cmd *cobra.Command, args []string) (err error) {
 		return err
 	}
 
-	sdk, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool,
+	sdkOptions := []sdk.Option{
 		sdk.WithEncryptionKey(key),
 		sdk.WithErasureCoding(parityBlocks()),
-	)
+	}
+
+	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool, sdkOptions...)
 	if err != nil {
 		return err
 	}
 	defer func() {
-		if cerr := sdk.Close(); cerr != nil {
+		if cerr := akaveSDK.Close(); cerr != nil {
 			cmd.PrintErrf("failed to close SDK: %v", cerr)
 		}
 	}()
 
-	streamingAPI := sdk.StreamingAPI()
+	streamingAPI := akaveSDK.StreamingAPI()
 
 	fileUpload, err := streamingAPI.CreateFileUpload(ctx, bucketName, fileName)
 	if err != nil {
@@ -274,7 +276,7 @@ func cmdStreamingFileUpload(cmd *cobra.Command, args []string) (err error) {
 		return fmt.Errorf("failed to finish progress bar: %w", err)
 	}
 
-	cmd.PrintErrf("File uploaded successfully: Name=%s, RootCID=%s, Size=%d, TransferedSize=%d\n", fileName, info.RootCID, fi.Size(), info.EncodedSize)
+	cmd.PrintErrf("File uploaded successfully: Name=%s, RootCID=%s, Size=%d, TransferredSize=%d\n", fileName, info.RootCID, fi.Size(), info.EncodedSize)
 
 	return nil
 }
@@ -295,20 +297,22 @@ func cmdStreamingFileDownload(cmd *cobra.Command, args []string) (err error) {
 		return err
 	}
 
-	sdk, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool,
+	sdkOptions := []sdk.Option{
 		sdk.WithEncryptionKey(key),
 		sdk.WithErasureCoding(parityBlocks()),
-	)
+	}
+
+	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool, sdkOptions...)
 	if err != nil {
 		return err
 	}
 	defer func() {
-		if cerr := sdk.Close(); cerr != nil {
+		if cerr := akaveSDK.Close(); cerr != nil {
 			cmd.PrintErrf("failed to close SDK: %v", cerr)
 		}
 	}()
 
-	streamingAPI := sdk.StreamingAPI()
+	streamingAPI := akaveSDK.StreamingAPI()
 
 	fileDownload, err := streamingAPI.CreateFileDownload(ctx, bucketName, fileName, rootCID)
 	if err != nil {
@@ -350,7 +354,7 @@ func cmdStreamingFileDownload(cmd *cobra.Command, args []string) (err error) {
 		return fmt.Errorf("failed to finish progress bar: %w", err)
 	}
 
-	cmd.PrintErrf("File downloaded successfully: Name=%s, Path=%s, Size=%d, TransferedSize=%d\n", fileName, filepath.Join(destPath, fileName), writtenBytes, info.EncodedSize)
+	cmd.PrintErrf("File downloaded successfully: Name=%s, Path=%s, Size=%d, TransferredSize=%d\n", fileName, filepath.Join(destPath, fileName), writtenBytes, info.EncodedSize)
 
 	return nil
 }

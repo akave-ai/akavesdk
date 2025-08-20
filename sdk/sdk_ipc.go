@@ -80,7 +80,12 @@ func (sdk *IPC) CreateBucket(ctx context.Context, name string) (_ *IPCBucketCrea
 		return &IPCBucketCreateResult{}, errSDK.Wrap(err)
 	}
 
-	bucket, err := sdk.ipc.Storage.GetBucketByName(&bind.CallOpts{From: sdk.ipc.Auth.From}, name)
+	bucket, err := sdk.ipc.Storage.GetBucketByName(
+		&bind.CallOpts{Context: ctx, From: sdk.ipc.Auth.From},
+		name,
+		sdk.ipc.Auth.From,
+		big.NewInt(0), big.NewInt(0), // no need to fetch file ids here
+	)
 	if err != nil {
 		return &IPCBucketCreateResult{}, errSDK.Wrap(ipc.ErrorHashToError(err))
 	}
@@ -121,11 +126,13 @@ func (sdk *IPC) ViewBucket(ctx context.Context, bucketName string) (_ IPCBucket,
 }
 
 // ListBuckets returns list of buckets.
-func (sdk *IPC) ListBuckets(ctx context.Context) (_ []IPCBucket, err error) {
-	defer mon.Task()(&ctx)(&err)
+func (sdk *IPC) ListBuckets(ctx context.Context, offset, limit int64) (_ []IPCBucket, err error) {
+	defer mon.Task()(&ctx, offset, limit)(&err)
 
 	res, err := sdk.client.BucketList(ctx, &pb.IPCBucketListRequest{
 		Address: sdk.ipc.Auth.From.String(),
+		Offset:  offset,
+		Limit:   limit,
 	})
 	if err != nil {
 		return nil, errSDK.Wrap(err)
@@ -168,12 +175,15 @@ func (sdk *IPC) DeleteBucket(ctx context.Context, name string) (err error) {
 	var bucketID [32]byte
 	copy(bucketID[:], id)
 
-	bucketIdx, err := sdk.ipc.Storage.GetBucketIndexByName(&bind.CallOpts{}, bucket.Name, sdk.ipc.Auth.From)
+	bucketIdx, err := sdk.ipc.Storage.GetBucketIndexByName(&bind.CallOpts{Context: ctx}, bucket.Name, sdk.ipc.Auth.From)
 	if err != nil {
 		return errSDK.Wrap(ipc.ErrorHashToError(err))
 	}
+	if !bucketIdx.Exists {
+		return errSDK.Errorf("bucket does not exist: %s", name)
+	}
 
-	tx, err := sdk.ipc.Storage.DeleteBucket(sdk.ipc.Auth, bucketID, bucket.Name, bucketIdx)
+	tx, err := sdk.ipc.Storage.DeleteBucket(sdk.ipc.Auth, bucketID, bucket.Name, bucketIdx.Index)
 	if err != nil {
 		return errSDK.Wrap(ipc.ErrorHashToError(err))
 	}
@@ -217,8 +227,8 @@ func (sdk *IPC) FileInfo(ctx context.Context, bucketName, fileName string) (_ IP
 }
 
 // ListFiles returns list of files in a particular bucket.
-func (sdk *IPC) ListFiles(ctx context.Context, bucketName string) (_ []IPCFileListItem, err error) {
-	defer mon.Task()(&ctx, bucketName)(&err)
+func (sdk *IPC) ListFiles(ctx context.Context, bucketName string, offset, limit int64) (_ []IPCFileListItem, err error) {
+	defer mon.Task()(&ctx, bucketName, offset, limit)(&err)
 
 	if bucketName == "" {
 		return nil, errSDK.Errorf("empty bucket name")
@@ -232,6 +242,8 @@ func (sdk *IPC) ListFiles(ctx context.Context, bucketName string) (_ []IPCFileLi
 	resp, err := sdk.client.FileList(ctx, &pb.IPCFileListRequest{
 		BucketName: bucketName,
 		Address:    sdk.ipc.Auth.From.String(),
+		Offset:     offset,
+		Limit:      limit,
 	})
 	if err != nil {
 		return nil, errSDK.Wrap(err)
@@ -268,22 +280,30 @@ func (sdk *IPC) FileDelete(ctx context.Context, bucketName, fileName string) (er
 		return errSDK.Wrap(err)
 	}
 
-	bucket, err := sdk.ipc.Storage.GetBucketByName(&bind.CallOpts{From: sdk.ipc.Auth.From}, bucketName)
+	bucket, err := sdk.ipc.Storage.GetBucketByName(
+		&bind.CallOpts{Context: ctx, From: sdk.ipc.Auth.From},
+		bucketName,
+		sdk.ipc.Auth.From,
+		big.NewInt(0), big.NewInt(0), // no need to fetch file ids here
+	)
 	if err != nil {
 		return errSDK.Wrap(ipc.ErrorHashToError(err))
 	}
 
-	file, err := sdk.ipc.Storage.GetFileByName(&bind.CallOpts{}, bucket.Id, fileName)
+	file, err := sdk.ipc.Storage.GetFileByName(&bind.CallOpts{Context: ctx}, bucket.Id, fileName)
 	if err != nil {
 		return errSDK.Wrap(ipc.ErrorHashToError(err))
 	}
 
-	fileIdx, err := sdk.ipc.Storage.GetFileIndexById(&bind.CallOpts{}, fileName, bucket.Id)
+	fileIdx, err := sdk.ipc.Storage.GetFileIndexById(&bind.CallOpts{Context: ctx, From: sdk.ipc.Auth.From}, bucket.Name, file.Id, sdk.ipc.Auth.From)
 	if err != nil {
 		return errSDK.Wrap(ipc.ErrorHashToError(err))
 	}
+	if !fileIdx.Exists {
+		return errSDK.Errorf("file index not exists: %s", fileName)
+	}
 
-	tx, err := sdk.ipc.Storage.DeleteFile(sdk.ipc.Auth, file.Id, bucket.Id, fileName, fileIdx)
+	tx, err := sdk.ipc.Storage.DeleteFile(sdk.ipc.Auth, file.Id, bucket.Id, fileName, fileIdx.Index)
 	if err != nil {
 		return errSDK.Wrap(ipc.ErrorHashToError(err))
 	}
@@ -317,7 +337,12 @@ func (sdk *IPC) CreateFileUpload(ctx context.Context, bucketName, fileName strin
 	var bucket contracts.IStorageBucket
 
 	err = sdk.withRetry.do(ctx, func() (bool, error) {
-		bucket, err = sdk.ipc.Storage.GetBucketByName(&bind.CallOpts{From: sdk.ipc.Auth.From}, bucketName)
+		bucket, err = sdk.ipc.Storage.GetBucketByName(
+			&bind.CallOpts{Context: ctx, From: sdk.ipc.Auth.From},
+			bucketName,
+			sdk.ipc.Auth.From,
+			big.NewInt(0), big.NewInt(0), // no need to fetch file ids here
+		)
 		return true, err
 	})
 	if err != nil {
@@ -377,7 +402,12 @@ func (sdk *IPC) Upload(ctx context.Context, fileUpload *IPCFileUpload, reader io
 	var bucket contracts.IStorageBucket
 
 	err = sdk.withRetry.do(ctx, func() (bool, error) {
-		bucket, err = sdk.ipc.Storage.GetBucketByName(&bind.CallOpts{From: sdk.ipc.Auth.From, Context: ctx}, bucketName)
+		bucket, err = sdk.ipc.Storage.GetBucketByName(
+			&bind.CallOpts{Context: ctx, From: sdk.ipc.Auth.From},
+			bucketName,
+			sdk.ipc.Auth.From,
+			big.NewInt(0), big.NewInt(0), // no need to fetch file ids here
+		)
 		return true, err
 	})
 	if err != nil {
@@ -402,6 +432,13 @@ func (sdk *IPC) Upload(ctx context.Context, fileUpload *IPCFileUpload, reader io
 	g, chunkCtx := errgroup.WithContext(ctx)
 	fileUploadChunksCh := make(chan IPCFileChunkUploadV2)
 	waitTransactionsCh := make(chan TxWaitSignal, sdk.chunkBuffer)
+
+	pool := newConnectionPool()
+	defer func() {
+		if err := pool.close(); err != nil {
+			slog.Warn("failed to close connection", slog.String("error", err.Error()))
+		}
+	}()
 
 	// Start goroutine for reading data and creating chunks
 	g.Go(func() error {
@@ -450,7 +487,7 @@ func (sdk *IPC) Upload(ctx context.Context, fileUpload *IPCFileUpload, reader io
 						&opts,
 						chunkUpload.ChunkCID.Bytes(),
 						bucket.Id, fileName,
-						big.NewInt(int64(chunkUpload.ProtoNodeSize)),
+						big.NewInt(int64(chunkUpload.EncodedSize)),
 						cids, sizes,
 						big.NewInt(chunkUpload.Index))
 
@@ -531,7 +568,7 @@ func (sdk *IPC) Upload(ctx context.Context, fileUpload *IPCFileUpload, reader io
 					return nil
 				}
 
-				if err := sdk.uploadChunk(chunkCtx, chunkUpload, fileUpload.blocksCounter, fileUpload.bytesCounter, isContinuation); err != nil {
+				if err := sdk.uploadChunk(chunkCtx, chunkUpload, pool, fileUpload.blocksCounter, fileUpload.bytesCounter, isContinuation); err != nil {
 					return err
 				}
 
@@ -553,7 +590,7 @@ func (sdk *IPC) Upload(ctx context.Context, fileUpload *IPCFileUpload, reader io
 	var fileMeta contracts.IStorageFile
 
 	err = sdk.withRetry.do(ctx, func() (bool, error) {
-		fileMeta, err = sdk.ipc.Storage.GetFileByName(&bind.CallOpts{From: sdk.ipc.Auth.From}, bucket.Id, fileName)
+		fileMeta, err = sdk.ipc.Storage.GetFileByName(&bind.CallOpts{Context: ctx, From: sdk.ipc.Auth.From}, bucket.Id, fileName)
 		return true, err
 	})
 	if err != nil {
@@ -565,7 +602,7 @@ func (sdk *IPC) Upload(ctx context.Context, fileUpload *IPCFileUpload, reader io
 	var isFilled bool
 	for !isFilled {
 		err = sdk.withRetry.do(ctx, func() (bool, error) {
-			isFilled, err = sdk.ipc.Storage.IsFileFilled(&bind.CallOpts{}, fileID)
+			isFilled, err = sdk.ipc.Storage.IsFileFilled(&bind.CallOpts{Context: ctx}, fileID)
 			return true, err
 		})
 		if err != nil {
@@ -659,29 +696,22 @@ func (sdk *IPC) createChunkUpload(ctx context.Context, index int64, fileEncrypti
 	}
 
 	return IPCFileChunkUploadV2{
-		Index:         index,
-		ChunkCID:      chunkDAG.CID,
-		ActualSize:    size,
-		RawDataSize:   chunkDAG.RawDataSize,
-		ProtoNodeSize: chunkDAG.ProtoNodeSize,
-		Blocks:        chunkDAG.Blocks,
-		BucketID:      bucketID,
-		FileName:      fileName,
+		Index:       index,
+		ChunkCID:    chunkDAG.CID,
+		ActualSize:  size,
+		RawDataSize: chunkDAG.RawDataSize,
+		EncodedSize: chunkDAG.EncodedSize,
+		Blocks:      chunkDAG.Blocks,
+		BucketID:    bucketID,
+		FileName:    fileName,
 	}, nil
 }
 
-func (sdk *IPC) uploadChunk(ctx context.Context, fileChunkUpload IPCFileChunkUploadV2, blockCount, bytesCount *atomic.Int64, isResuming bool) (err error) {
+func (sdk *IPC) uploadChunk(ctx context.Context, fileChunkUpload IPCFileChunkUploadV2, pool *connectionPool, blockCount, bytesCount *atomic.Int64, isResuming bool) (err error) {
 	defer mon.Task()(&ctx, fileChunkUpload)(&err)
 
 	g, ctx := errgroup.WithContext(ctx)
 	g.SetLimit(sdk.maxConcurrency)
-
-	pool := newConnectionPool()
-	defer func() {
-		if err := pool.close(); err != nil {
-			slog.Warn("failed to close connection", slog.String("error", err.Error()))
-		}
-	}()
 
 	_, _, protoChunk, err := toIPCProtoChunk(
 		fileChunkUpload.ChunkCID.String(),
@@ -711,7 +741,7 @@ func (sdk *IPC) uploadChunk(ctx context.Context, fileChunkUpload IPCFileChunkUpl
 	for i, block := range fileChunkUpload.Blocks {
 		deriveCtx := context.WithoutCancel(ctx)
 		g.Go(func() (err error) {
-			defer mon.Task()(&deriveCtx, block.CID)(&err)
+			defer mon.TaskNamed("(*IPC).uploadIPCBlock")(&deriveCtx)(&err)
 
 			timer := time.AfterFunc(30*time.Second, func() {
 				slog.Debug("stale block",
@@ -970,12 +1000,17 @@ func (sdk *IPC) FileSetPublicAccess(ctx context.Context, bucketName, fileName st
 		return errSDK.Wrap(err)
 	}
 
-	bucket, err := sdk.ipc.Storage.GetBucketByName(&bind.CallOpts{From: sdk.ipc.Auth.From}, bucketName)
+	bucket, err := sdk.ipc.Storage.GetBucketByName(
+		&bind.CallOpts{Context: ctx, From: sdk.ipc.Auth.From},
+		bucketName,
+		sdk.ipc.Auth.From,
+		big.NewInt(0), big.NewInt(0), // no need to fetch file ids here
+	)
 	if err != nil {
 		return errSDK.Wrap(ipc.ErrorHashToError(err))
 	}
 
-	file, err := sdk.ipc.Storage.GetFileByName(&bind.CallOpts{}, bucket.Id, fileName)
+	file, err := sdk.ipc.Storage.GetFileByName(&bind.CallOpts{Context: ctx}, bucket.Id, fileName)
 	if err != nil {
 		return errSDK.Wrap(ipc.ErrorHashToError(err))
 	}
@@ -1000,6 +1035,13 @@ func (sdk *IPC) Download(ctx context.Context, fileDownload IPCFileDownload, writ
 	chunkDownloadCh := make(chan FileChunkDownload, sdk.chunkBuffer)
 
 	g, ctx := errgroup.WithContext(ctx)
+
+	pool := newConnectionPool()
+	defer func() {
+		if err := pool.close(); err != nil {
+			slog.Warn("failed to close connection", slog.String("error", err.Error()))
+		}
+	}()
 
 	// Start goroutine to create chunk downloads
 	g.Go(func() error {
@@ -1039,6 +1081,7 @@ func (sdk *IPC) Download(ctx context.Context, fileDownload IPCFileDownload, writ
 
 				if err := sdk.downloadChunkBlocks(
 					ctx,
+					pool,
 					fileDownload.BucketName,
 					fileDownload.Name,
 					sdk.ipc.Auth.From.String(),
@@ -1095,6 +1138,7 @@ func (sdk *IPC) createChunkDownload(ctx context.Context, bucketName, fileName st
 
 func (sdk *IPC) downloadChunkBlocks(
 	ctx context.Context,
+	pool *connectionPool,
 	bucketName, fileName, address string,
 	chunkDownload FileChunkDownload,
 	fileEncryptionKey []byte,
@@ -1107,13 +1151,6 @@ func (sdk *IPC) downloadChunkBlocks(
 	g, ctx := errgroup.WithContext(ctx)
 	g.SetLimit(sdk.maxConcurrency)
 
-	pool := newConnectionPool()
-	defer func() {
-		if err := pool.close(); err != nil {
-			slog.Warn("failed to close connection", slog.String("error", err.Error()))
-		}
-	}()
-
 	type retrievedBlock struct {
 		Pos  int
 		CID  string
@@ -1125,7 +1162,7 @@ func (sdk *IPC) downloadChunkBlocks(
 		deriveCtx := context.WithoutCancel(ctx)
 
 		g.Go(func() (err error) {
-			defer mon.Task()(&deriveCtx, block.CID)(&err)
+			defer mon.TaskNamed("(*IPC).downloadBlock")(&deriveCtx, block.CID)(&err)
 
 			blockData, err := sdk.fetchBlockData(ctx, pool, chunkDownload.CID, bucketName, fileName, address, chunkDownload.Index, int64(i), block)
 			if err != nil {

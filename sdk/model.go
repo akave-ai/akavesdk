@@ -90,12 +90,12 @@ type FileUpload struct {
 
 // FileChunkUpload contains single file chunk meta information.
 type FileChunkUpload struct {
-	StreamID      string
-	Index         int64
-	ChunkCID      cid.Cid
-	RawDataSize   uint64
-	ProtoNodeSize uint64
-	Blocks        []FileBlockUpload
+	StreamID    string
+	Index       int64
+	ChunkCID    cid.Cid
+	RawDataSize uint64
+	EncodedSize uint64
+	Blocks      []FileBlockUpload
 }
 
 // FileDownload contains single file meta information.
@@ -187,14 +187,14 @@ type IPCFileMetaV2 struct {
 
 // IPCFileChunkUploadV2 contains single file chunk meta information.
 type IPCFileChunkUploadV2 struct {
-	Index         int64
-	ChunkCID      cid.Cid
-	ActualSize    int64
-	RawDataSize   uint64
-	ProtoNodeSize uint64
-	Blocks        []FileBlockUpload
-	BucketID      [32]byte
-	FileName      string
+	Index       int64
+	ChunkCID    cid.Cid
+	ActualSize  int64
+	RawDataSize uint64
+	EncodedSize uint64
+	Blocks      []FileBlockUpload
+	BucketID    [32]byte
+	FileName    string
 }
 
 // IPCFileUpload contains ipc single file meta information.
@@ -242,9 +242,9 @@ func (us *uploadState) preCreateChunk(chunk IPCFileChunkUploadV2, tx *types.Tran
 
 	us.chunkCount++
 	us.actualFileSize += chunk.ActualSize
-	us.encodedFileSize += int64(chunk.ProtoNodeSize)
+	us.encodedFileSize += int64(chunk.EncodedSize)
 
-	return us.dagRoot.AddLink(chunk.ChunkCID, chunk.RawDataSize, chunk.ProtoNodeSize)
+	return us.dagRoot.AddLink(chunk.ChunkCID, chunk.RawDataSize, chunk.EncodedSize)
 }
 
 // removes a chunk from the pre-created chunks map.

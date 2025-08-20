@@ -7,13 +7,21 @@ import (
 	"crypto/ecdsa"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/ethereum/go-ethereum/params"
 	"github.com/spf13/cobra"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+
+	"github.com/akave-ai/akavesdk/private/pb"
 )
 
 const walletFileExt = ".json"
@@ -67,6 +75,13 @@ var (
 		RunE: cmdImportWallet,
 	}
 
+	walletBalanceCmd = &cobra.Command{
+		Use:   "balance [account-name]",
+		Short: "Shows the AKVT token balance for a wallet",
+		Args:  cobra.MaximumNArgs(1),
+		RunE:  cmdWalletBalance,
+	}
+
 	keystoreDir string
 )
 
@@ -97,6 +112,7 @@ func initWalletCommands() {
 	walletCmd.AddCommand(walletListCmd)
 	walletCmd.AddCommand(walletGetKeyCmd)
 	walletCmd.AddCommand(walletImportCmd)
+	walletCmd.AddCommand(walletBalanceCmd)
 }
 
 func cmdCreateWallet(cmd *cobra.Command, args []string) (err error) {
@@ -284,16 +300,16 @@ func cmdImportWallet(cmd *cobra.Command, args []string) (err error) {
 	return nil
 }
 
-// PrivateKeyFromWallet returns the private key and address of a wallet.
-func PrivateKeyFromWallet(walletName string) (string, string, error) {
+// PrivateKeyFromWallet returns the private key, address and name of a wallet.
+func PrivateKeyFromWallet(walletName string) (string, string, string, error) {
 	if walletName == "" {
 		// If no wallet specified, try to use the first available wallet
 		entries, err := os.ReadDir(keystoreDir)
 		if err != nil {
 			if os.IsNotExist(err) {
-				return "", "", fmt.Errorf("invalid length, need 256 bits")
+				return "", "", "", fmt.Errorf("invalid length, need 256 bits")
 			}
-			return "", "", fmt.Errorf("invalid length, need 256 bits")
+			return "", "", "", fmt.Errorf("invalid length, need 256 bits")
 		}
 
 		for _, entry := range entries {
@@ -305,26 +321,82 @@ func PrivateKeyFromWallet(walletName string) (string, string, error) {
 		}
 
 		if walletName == "" {
-			return "", "", fmt.Errorf("invalid length, need 256 bits")
+			return "", "", "", fmt.Errorf("invalid length, need 256 bits")
 		}
 	}
 
 	walletPath, err := WalletPath(walletName)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 
 	data, err := os.ReadFile(walletPath)
 	if err != nil {
-		return "", "", fmt.Errorf("failed to read wallet file: %w", err)
+		return "", "", "", fmt.Errorf("failed to read wallet file: %w", err)
 	}
 
 	var walletInfo WalletInfo
 	if err := json.Unmarshal(data, &walletInfo); err != nil {
-		return "", "", fmt.Errorf("failed to parse wallet file: %w", err)
+		return "", "", "", fmt.Errorf("failed to parse wallet file: %w", err)
 	}
 
-	return walletInfo.PrivateKey, walletInfo.Address, nil
+	return walletInfo.PrivateKey, walletInfo.Address, walletName, nil
 }
 
-// TODO: Add a command to check wallet balance
+func cmdWalletBalance(cmd *cobra.Command, args []string) (err error) {
+	ctx := cmd.Context()
+	defer mon.Task()(&ctx, args)(&err)
+
+	// Determine which wallet to use
+	var walletNameArg string
+	if len(args) > 0 {
+		walletNameArg = strings.TrimSpace(args[0])
+	} else {
+		walletNameArg = ""
+	}
+
+	_, walletAddress, name, err := PrivateKeyFromWallet(walletNameArg)
+	if err != nil {
+		return fmt.Errorf("failed to get wallet: %w", err)
+	}
+
+	// Connect to akavenode via gRPC to get connection parameters
+	// TODO: whhen TLS connection is available, DO NOT forget to change it here or even asbtract this setup in a separate function
+	conn, err := grpc.NewClient(nodeRPCAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return fmt.Errorf("failed to connect to akavenode: %w", err)
+	}
+	defer func() {
+		if cerr := conn.Close(); cerr != nil {
+			cmd.PrintErrf("failed to close gRPC connection: %v", cerr)
+		}
+	}()
+
+	connParams, err := pb.NewIPCNodeAPIClient(conn).ConnectionParams(ctx, &pb.ConnectionParamsRequest{})
+	if err != nil {
+		return fmt.Errorf("failed to get connection parameters: %w", err)
+	}
+
+	ethClient, err := ethclient.Dial(connParams.DialUri)
+	if err != nil {
+		return fmt.Errorf("failed to dial node: %w", err)
+	}
+	defer ethClient.Close()
+
+	balance, err := ethClient.BalanceAt(ctx, common.HexToAddress(walletAddress), nil)
+	if err != nil {
+		return fmt.Errorf("failed to get wallet balance: %w", err)
+	}
+
+	akvtAmount := new(big.Float).SetInt(balance)
+	akvtAmount.Quo(akvtAmount, new(big.Float).SetInt(big.NewInt(params.Ether)))
+
+	// Format to 4 decimal places and remove trailing zeros
+	akvtAmountStr := akvtAmount.Text('f', 4)
+	akvtAmountStr = strings.TrimRight(akvtAmountStr, "0")
+	akvtAmountStr = strings.TrimRight(akvtAmountStr, ".")
+
+	cmd.Printf("Wallet:  %s\nAddress: %s\nBalance: %s AKVT\n", name, walletAddress, akvtAmountStr)
+
+	return nil
+}
