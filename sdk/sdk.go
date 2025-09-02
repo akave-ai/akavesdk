@@ -31,9 +31,10 @@ import (
 )
 
 const (
-	// BlockSize is the size of a block. Keep in mind that encryption adds some overhead and max supported block size(with added encryption) is 1MiB.
-	// TODO: after removing normal api, chnage it to 1MiB.
-	BlockSize = 1 * memory.MB
+	DefaultBlockSize = 1 * memory.MB
+	DefaultChunkSize = 32 * memory.MB
+	MaxBlockSize = 1*memory.MB - EncryptionOverhead
+	MinBlockSize = 64 * memory.KB
 	// EncryptionOverhead is the overhead of encryption.
 	EncryptionOverhead = 28 // 16 bytes for AES-GCM tag, 12 bytes for nonce
 
@@ -59,14 +60,21 @@ type SDK struct {
 	ec       *erasurecode.ErasureCode
 
 	maxConcurrency            int
-	blockPartSize             int64
+	blockSize                 int64  // configurable block size
+	maxChunkSize             int64  // configurable maximum chunk size
 	useConnectionPool         bool
 	privateKey                string
 	encryptionKey             []byte // empty means no encryption
 	streamingMaxBlocksInChunk int
-	parityBlocksCount         int  // 0 means no erasure coding applied
-	useMetadataEncryption     bool // encrypts bucket and file names if true
+	parityBlocksCount         int   
+	useMetadataEncryption     bool  
 	chunkBuffer               int
+	adaptiveChunkSizing      bool  
+	chunkSizer               *adaptive.ChunkSizer // handles adaptive chunk sizing
+	uploadRateLimit          int64 
+	uploadManager            *concurrency.UploadManager // manages concurrent uploads
+	progressTracker          *progress.Tracker // tracks operation progress
+	progressCallback         progress.ProgressCallback // callback for progress updates
 
 	withRetry withRetry
 }
@@ -113,6 +121,37 @@ func WithChunkBuffer(bufferSize int) func(*SDK) {
 	}
 }
 
+func WithBlockSize(size int64) func(*SDK) {
+	return func(s *SDK) {
+		s.blockSize = size
+	}
+}
+
+func WithMaxChunkSize(size int64) func(*SDK) {
+	return func(s *SDK) {
+		s.maxChunkSize = size
+	}
+}
+
+func WithAdaptiveChunkSizing(enabled bool) func(*SDK) {
+	return func(s *SDK) {
+		s.adaptiveChunkSizing = enabled
+	}
+}
+
+func WithUploadRateLimit(bytesPerSecond int64) func(*SDK) {
+	return func(s *SDK) {
+		s.uploadRateLimit = bytesPerSecond
+	}
+}
+
+func WithProgressCallback(callback progress.ProgressCallback) func(*SDK) {
+	return func(s *SDK) {
+		s.progressCallback = callback
+		s.progressTracker = progress.New(callback, 1*time.Second) 
+	}
+}
+
 // WithoutRetry disables retries for bucket creation and file upload ops.
 func WithoutRetry() func(*SDK) {
 	return func(s *SDK) {
@@ -135,10 +174,15 @@ func New(address string, maxConcurrency int, blockPartSize int64, useConnectionP
 		client:                    pb.NewNodeAPIClient(conn),
 		conn:                      conn,
 		maxConcurrency:            maxConcurrency,
-		blockPartSize:             blockPartSize,
+		blockSize:                 DefaultBlockSize,
+		maxChunkSize:             DefaultChunkSize,
 		useConnectionPool:         useConnectionPool,
 		streamingMaxBlocksInChunk: 32,
 		chunkBuffer:               0, // Default value for chunk buffer
+		adaptiveChunkSizing:      false,
+		chunkSizer:               adaptive.New(),
+		uploadRateLimit:          0, // No limit by default
+		uploadManager:            concurrency.New(int64(maxConcurrency)),
 		// enable retires by default
 		withRetry: withRetry{
 			maxAttempts: 5,
@@ -150,17 +194,29 @@ func New(address string, maxConcurrency int, blockPartSize int64, useConnectionP
 		opt(s)
 	}
 
+	if s.blockSize < MinBlockSize || s.blockSize > MaxBlockSize {
+		return nil, errSDK.Errorf("invalid block size: %d. Valid range is %d-%d", s.blockSize, MinBlockSize, MaxBlockSize)
+	}
+
+	if s.maxChunkSize < s.blockSize {
+		return nil, errSDK.Errorf("chunk size (%d) must be greater than block size (%d)", s.maxChunkSize, s.blockSize)
+	}
+
 	if s.streamingMaxBlocksInChunk < 2 {
 		return nil, errSDK.Errorf("streaming max blocks in chunk %d should be >= 2", s.streamingMaxBlocksInChunk)
 	}
 
 	keyLength := len(s.encryptionKey)
 	if keyLength != 0 && keyLength != 32 {
-		return nil, errSDK.Errorf("encyption key length should be 32 bytes long")
+		return nil, errSDK.Errorf("encryption key length should be 32 bytes long")
 	}
 
 	if s.parityBlocksCount > s.streamingMaxBlocksInChunk/2 {
 		return nil, errSDK.Errorf("parity blocks count %d should be <= %d", s.parityBlocksCount, s.streamingMaxBlocksInChunk/2)
+	}
+
+	if s.uploadRateLimit < 0 {
+		return nil, errSDK.Errorf("upload rate limit cannot be negative: %d", s.uploadRateLimit)
 	}
 
 	if s.parityBlocksCount > 0 { // erasure coding enabled

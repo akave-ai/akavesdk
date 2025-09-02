@@ -158,6 +158,26 @@ func (sdk *StreamingAPI) CreateFileUpload(ctx context.Context, bucketName string
 func (sdk *StreamingAPI) Upload(ctx context.Context, upload FileUpload, reader io.Reader) (_ FileMeta, err error) {
 	defer mon.Task()(&ctx, upload)(&err)
 
+	uploadStatus, err := sdk.uploadManager.StartUpload(ctx, upload.StreamID.String(), 0, 0)
+	if err != nil {
+		return FileMeta{}, errSDK.Wrap(err)
+	}
+	defer func() {
+		sdk.uploadManager.CompleteUpload(upload.StreamID.String(), err)
+		if sdk.progressTracker != nil {
+			sdk.progressTracker.CompleteOperation(upload.StreamID.String(), err)
+		}
+	}()
+
+	if sdk.progressTracker != nil {
+		sdk.progressTracker.StartOperation(upload.StreamID.String(), 0, 0) // Total size will be updated after first chunk
+	}
+
+	if sdk.uploadRateLimit > 0 {
+		rl := ratelimit.New(sdk.uploadRateLimit)
+		reader = ratelimit.NewReaderWithBackpressure(ctx, reader, rl)
+	}
+
 	chunkEncOverhead := 0
 	fileEncKey, err := encryptionKey(sdk.encryptionKey, upload.BucketName, upload.Name)
 	if err != nil {
@@ -216,12 +236,19 @@ func (sdk *StreamingAPI) Upload(ctx context.Context, upload FileUpload, reader i
 					return err
 				}
 
+				if index == 0 {
+					totalSizeEstimate := int64(n) * (int64(upload.state.totalChunks))
+					uploadStatus.TotalBytes = totalSizeEstimate
+					uploadStatus.ChunksTotal = int32(upload.state.totalChunks)
+				}
+
 				select {
 				case <-chunkCtx.Done():
 					return chunkCtx.Err()
 				case fileUploadChunksCh <- chunkUpload:
 					index++
 					totalSize.Add(int64(n))
+					sdk.uploadManager.UpdateProgress(upload.StreamID.String(), int64(n), 1)
 				}
 			}
 
@@ -254,6 +281,10 @@ func (sdk *StreamingAPI) Upload(ctx context.Context, upload FileUpload, reader i
 				}
 				upload.chunksCounter.Add(1)
 				chunkCount++
+
+				if sdk.progressTracker != nil {
+					sdk.progressTracker.UpdateProgress(upload.StreamID.String(), 0, 1)
+				}
 			}
 		}
 	})
@@ -493,10 +524,19 @@ func (sdk *StreamingAPI) FileDelete(ctx context.Context, bucketName, fileName st
 func (sdk *StreamingAPI) createChunkUpload(ctx context.Context, fileUpload FileUpload, index int64, fileEncryptionKey, data []byte) (_ FileChunkUpload, err error) {
 	defer mon.Task()(&ctx, fileUpload, index)(&err)
 
+	startTime := time.Now()
+
 	if len(fileEncryptionKey) > 0 {
 		data, err = encryption.Encrypt(fileEncryptionKey, data, []byte(fmt.Sprintf("%d", index)))
 		if err != nil {
 			return FileChunkUpload{}, errSDK.Wrap(err)
+		}
+	}
+
+	if sdk.adaptiveChunkSizing {
+		chunkSize := sdk.chunkSizer.GetChunkSize()
+		if int64(len(data)) > chunkSize {
+			data = data[:chunkSize]
 		}
 	}
 
@@ -535,14 +575,22 @@ func (sdk *StreamingAPI) createChunkUpload(ctx context.Context, fileUpload FileU
 		chunkDAG.Blocks[i].Permit = upload.Permit
 	}
 
-	return FileChunkUpload{
+	chunkUpload := FileChunkUpload{
 		StreamID:    fileUpload.StreamID,
 		Index:       index,
 		ChunkCID:    chunkDAG.CID,
 		RawDataSize: chunkDAG.RawDataSize,
 		EncodedSize: chunkDAG.EncodedSize,
 		Blocks:      chunkDAG.Blocks,
-	}, nil
+	}
+
+	if sdk.adaptiveChunkSizing {
+		duration := time.Since(startTime)
+		success := err == nil
+		sdk.chunkSizer.UpdateMetrics(ctx, chunkDAG.EncodedSize, duration, success)
+	}
+
+	return chunkUpload, nil
 }
 
 func (sdk *StreamingAPI) uploadChunk(ctx context.Context, fileChunkUpload FileChunkUpload, pool *connectionPool, blockCount, bytesCount *atomic.Int64) (err error) {
@@ -598,7 +646,13 @@ func (sdk *StreamingAPI) uploadChunk(ctx context.Context, fileChunkUpload FileCh
 
 			_, closeErr := sender.CloseAndRecv()
 			blockCount.Add(1)
-			bytesCount.Add(int64(len(block.Data)))
+			bytesUploaded := int64(len(block.Data))
+			bytesCount.Add(bytesUploaded)
+
+			if sdk.progressTracker != nil {
+				sdk.progressTracker.UpdateProgress(fileChunkUpload.StreamID.String(), bytesUploaded, 0)
+			}
+
 			return closeErr
 		})
 	}
@@ -895,6 +949,13 @@ func (sdk *StreamingAPI) uploadBlock(ctx context.Context, block *pb.StreamFileBl
 	dataLen := int64(len(data))
 	if dataLen == 0 {
 		return nil
+	}
+
+	if sdk.uploadRateLimit > 0 {
+		rl := ratelimit.New(sdk.uploadRateLimit)
+		if err := rl.WaitN(ctx, len(data)); err != nil {
+			return errSDK.Wrap(err)
+		}
 	}
 
 	i := int64(0)
