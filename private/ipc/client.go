@@ -14,10 +14,8 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/zeebo/errs"
 
 	"github.com/akave-ai/akavesdk/private/ipc/contracts"
@@ -37,7 +35,7 @@ type StorageData struct {
 	ChunkCID   []byte
 	BlockCID   [32]byte
 	ChunkIndex *big.Int
-	BlockIndex uint8
+	BlockIndex *big.Int
 	NodeID     [32]byte
 	Nonce      *big.Int
 	Deadline   *big.Int
@@ -324,67 +322,6 @@ func (client *Client) DeployListPolicy(ctx context.Context, user common.Address)
 	}
 
 	return listPolicy, nil
-}
-
-// BatchReceiptRequest represents a single receipt request in a batch.
-type BatchReceiptRequest struct {
-	Hash common.Hash
-	Key  string
-}
-
-// BatchReceiptResponse represents the response for a single receipt request.
-type BatchReceiptResponse struct {
-	Receipt *types.Receipt
-	Error   error
-	Key     string
-}
-
-// BatchReceiptResult contains all responses from a batch request.
-type BatchReceiptResult struct {
-	Responses []BatchReceiptResponse
-}
-
-// GetTransactionReceiptsBatch fetches multiple transaction receipts in a single batch call.
-func (client *Client) GetTransactionReceiptsBatch(ctx context.Context, requests []BatchReceiptRequest, timeout time.Duration) (*BatchReceiptResult, error) {
-	rpcClient := client.Eth.Client()
-
-	batchReqs := make([]rpc.BatchElem, len(requests))
-	for i, req := range requests {
-		batchReqs[i] = rpc.BatchElem{
-			Method: "eth_getTransactionReceipt",
-			Args:   []interface{}{req.Hash},
-			Result: new(*types.Receipt),
-		}
-	}
-
-	batchCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	if err := rpcClient.BatchCallContext(batchCtx, batchReqs); err != nil {
-		return nil, err
-	}
-
-	responses := make([]BatchReceiptResponse, len(requests))
-	for i, req := range requests {
-		batchElem := batchReqs[i]
-		response := BatchReceiptResponse{
-			Key: req.Key,
-		}
-
-		if batchElem.Error != nil {
-			response.Error = batchElem.Error
-		} else {
-			response.Receipt = *batchElem.Result.(**types.Receipt)
-
-			if response.Receipt == nil {
-				response.Error = ethereum.NotFound
-			}
-		}
-
-		responses[i] = response
-	}
-
-	return &BatchReceiptResult{Responses: responses}, nil
 }
 
 // WaitForTx block execution until transaction receipt is received or context is cancelled.

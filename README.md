@@ -4,16 +4,17 @@ The **Akave SDK CLI** (`akavesdk`) is a command-line tool designed to streamline
 
 Whether you're building a new integration or managing data across nodes, this SDK provides robust capabilities to help you achieve seamless, scalable storage solutions.
 
-```Base commit: tag v0.3.0```.
+```Base commit: tag v0.4.0```.
 
 ## Build and test instructions
-Requirements: Go 1.23+
+Requirements: Go 1.25+
 
 `make build` - outputs a cli binary into `bin/akavecli`.<br>
 `make test` - runs tests.<br>
 Look at `Makefile` for details.
 
 # Akave Node API
+
 The Akave Node API provides a set of gRPC services for interacting with the Akave node. Below is a description of the model and available functions.
 
 ### Metadata model
@@ -108,7 +109,7 @@ File root CID is calculated incrementally using chunk CIDs.
 |---------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `FileUploadCreate`        | Initiates a file upload. Creates a unique stream-id for the file and stores it together with file data (e.g. fileName, bucket, creation_date). Shares the fact of such storing among all nodes in the network. This unique stream-id is used by the client in further requests.                                                                                                                                                                                                                                            |
 | `FileUploadChunkCreate`   | Stores the given chunk (cid, size and blocks metadata) and returns the receipt where each block should be uploaded to. Also shares the fact of storing the chunk among all nodes in the network.                                                                                                                                                                                                                                                                                                                           |
-| `FileUploadBlock`         | Uploads the given block (block's data) via grpc streaming to the node address returned in response to **FileUploadChunkCreate**. If the replication is enabled on a node, the node also replicates this block to some other nodes selected randomly (**replication_factor** defines to how many nodes a block should be replicated to). Also node stores information about peer ID of a node which now has this block (current node and replicated nodes) and shares this information with all other nodes in the network. |
+| `FileUploadBlock`         | Uploads the given block (block's data) via grpc streaming to the node address. Node stores information about peer ID of a node which now has this block and stores it on smart contract. |
 | `FileUploadCommit`        | Signals that upload operation is completed providing akave node with file's **root_cid**. Before this operation the file is "invisible": you can't get info about it or download it. After this operation you can't upload more blocks or chunks to this file.                                                                                                                                                                                                                                                             |
 | `FileDownloadCreate`      | Initiates file download. Fetches the file's metadata and its breakdown on chunks: list of chunks this file is made of.                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `FileDownloadChunkCreate` | Creates the "download receipt" for a chunk: list of blocks this chunk is made of and from where each block can be downloaded from.                                                                                                                                                                                                                                                                                                                                                                                         |
@@ -136,7 +137,7 @@ Uses same File, Bucket, Block and Chunk models as regular Akave Node API
 | `FileList`           | Retrieves all files of bucket (by name and creator address) metadata. Calls smart contract GetBucketByName, then GetFileByName through all bucket's file id's list.                                                                                                                                                                                                                                                                      |
 | `FileDelete`         | Unimplemented. Functionality calls from SDK side.                                                                                                                                                                                                                                                                                                                                                                                        |
 | `FileUploadCreate`   | Initiates a file upload. Selects node for each file block to upload.                                                                                                                                                                                                                                                                                                                                                                     |
-| `FileUploadBlock`    | Uploads the given block (block's data) via grpc streaming to the node address. If the replication is enabled on a node, the node also replicates this block to some other nodes selected randomly (**replication_factor** defines to how many nodes a block should be replicated to). Also node stores information about peer ID of a node which now has this block (current node and replicated nodes) and stores it on smart contract. |
+| `FileUploadBlock`    | Uploads the given block (block's data) via grpc streaming to the node address. Node stores information about peer ID of a node which now has this block and stores it on smart contract. |
 | `FileDownloadCreate` | Fetches the file's metadata and its breakdown on blocks: list of blocks this file is made of from smart contract by calling GetBucketByName, GetFileByName, GetFileBlockById respectively. Assigns peer to each block.                                                                                                                                                                                                                   |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `FileDownloadBlock`  | Downloads the block by cid via grpc streaming from a node which address picked in **FileDownloadCreate**.                                                                                                                                                                                                                                                                                                                                |
 
@@ -188,7 +189,7 @@ creates bucket, requires keyed transactor, string name. Used in IPC SDK CreateBu
 deletes bucket, requires same keyed transactor as creator of this bucket, bucket id 32byte array, string name.
 Used in IPC SDK DeleteBucket.
 - GetBucketByName(opts *bind.CallOpts, name string) (StorageBucket, error) {...} <br>
-retrieves bucket metadata, requires From(address of creator) to be filled in request (f.e. &bind.CallOpts{From: client.Auth.From}), and bucket name.
+retrieves bucket metadata, requires From(address of creator) to be filled in request (f.e. &bind.CallOpts{Context: ctx, From: client.Auth.From}), and bucket name.
 Used to get bucket's ID in IPC SDK CreateBucket, FileDelete, CreateFileUpload, and in IPC endpoint BucketView, FileView, FileList, FileDownloadCreate.
 - AddFile(opts *bind.TransactOpts, cid []byte, bucketId [32]byte, name string, size *big.Int) (*types.Transaction, error) {...} <br>
 adds file metadata, requires keyed transactor, content identifier (bytes), bucket id, name and size of *big.Int format, returns transaction.
@@ -205,8 +206,8 @@ Used in IPC SDK CreateFileUpload.
 - GetFileBlockById(opts *bind.CallOpts, id [32]byte) (StorageFileBlock, error) {...} <br>
 retrieves file block by id, requires block id as 32byte array.
 Used in IPC endpoint FileDownloadCreate and IPC SDK CreateFileDownload.
-- AddPeerBlock(opts *bind.TransactOpts, peerId []byte, cid []byte, isReplica bool) (*types.Transaction, error) {...} <br>
-adds peer block, requires keyed transactor, peerId (node id) bytes, content identifier bytes, is block replicated bool.
+- AddPeerBlock(opts *bind.TransactOpts, peerId []byte, cid []byte) (*types.Transaction, error) {...} <br>
+adds peer block, requires keyed transactor, peerId (node id) bytes, content identifier bytes.
 Used in IPC endpoint FileUploadBlock.
 - GetPeersByPeerBlockCid(opts *bind.CallOpts, cid []byte) ([][]byte, error) {...} <br>
 returns all peerIds that has peer block with given content identifier, requires cid bytes.
@@ -238,7 +239,7 @@ Used in IPC endpoint FileDownloadCreate.
 - `DAGRoot` helps to build file's root CID. On each file chunk you have to add a link to chunk(specifiying chunk's CID and its node sizes)
 - `BuildDAG` build `ChunkDAG` from a given file. This DAG is of flat structure, meaning it has 1 root and all blocks are children of this single root
 
-### SKD IPC API
+### SDK IPC API
 
 | Function Name | Description                                                                                                                                                                                  |
 |---------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -263,8 +264,7 @@ Used in IPC endpoint FileDownloadCreate.
 
 - **Bucket Management**: Create, view, list, and delete buckets.
 - **File Management**: Upload, download, view, list, and delete files.
-- **Streaming API**: Interact with the streaming file API for efficient file operations.
-- **IPC API**: Interact with the blockchain API for bucket and file operations.
+- **Wallet Management**: Create and manage wallets for Akave storage transactions, import/export private keys and check balances.
 
 Encryption key in flag `-e`(or `--encryption-key` in long form) for upload and download file commands is optional, without using it data will be unencrypted. Key must be a hex encoded string.
 The key length **must be 32 bytes** long.
@@ -276,81 +276,60 @@ Disable erasure coding flag `disable-erasure-coding` ensures that file is not er
 ### Bucket Commands
 - **Create Bucket**: Creates a new bucket.
   ```sh
-  akavecli bucket create <bucket-name> --node-address=localhost:5000
+  akavecli bucket create <bucket-name> --node-address=localhost:5000 --private-key="some-private-key"
+  ```
+- **Delete Bucket**: Deletes a specific bucket.
+  ```sh
+  akavecli bucket delete <bucket-name> --node-address=localhost:5000 --private-key="some-private-key"
   ```
 - **View Bucket**: Retrieves details of a specific bucket.
   ```sh
-  akavecli bucket view <bucket-name> --node-address=localhost:5000
+  akavecli bucket view <bucket-name> --node-address=localhost:5000 --private-key="some-private-key"
   ```
 - **List Buckets**: List all available buckets.
   ```sh
-  akavecli bucket list --node-address=localhost:5000
-  ```
-- **Delete Bucket**: Soft deletess a specific bucket.
-  ```sh
-  akavecli bucket delete <bucket-name> --node-address=localhost:5000
-  ```
-
-### Streaming API
-- **List Files**: Lists all files in a specified bucket.
-  ```sh
-  akavecli files-streaming list <bucket-name> --node-address=localhost:5000
-  ```
-- **File Info**: Retrieves metadata of a specific file.
-  ```sh
-  akavecli files-streaming info <bucket-name> <file-name> --node-address=localhost:5000
-  ```
-- **Upload File**: Uploads a file to a specified bucket from the local file system(`-e` is optional, key length **must be 32 bytes** long, `disable-erasure-coding` is optional)
-  ```sh
-  akavecli files-streaming upload <bucket-name> <file-path> -e="encryption-key" --disable-erasure-coding --node-address=localhost:5000
-  ```
-- **Download File**: Downloads a file from a specified bucket to destination folder(`-e` is optional, key length **must be 32 bytes** long, `disable-erasure-coding` is optional)
-  ```sh
-  akavecli files-streaming download <bucket-name> <file-name> <destination-folder> -e="encryption-key" --disable-erasure-coding --node-address=localhost:5000
-  ```
-  <small>`<file-name>` here is the last segment in `<file-path>` of Upload command</small>
-  
-- **Delete File**: Deletes a specific file.
-  ```sh
-  akavecli files-streaming delete <bucket-name> <file-name> --node-address=localhost:5000
-  ```
-  <small>`<file-name>` here is the last segment in `<file-path>` of Upload command</small>
-
-### Akave IPC CLI
-
-## Commands
-
-### Bucket Commands
-- **Create Bucket**: Creates a new bucket.
-  ```sh
-  akavecli ipc bucket create <bucket-name> --node-address=localhost:5000 --private-key="some-private-key"
-  ```
-- **Delete Bucket**: Soft deletess a specific bucket.
-  ```sh
-  akavecli ipc bucket delete <bucket-name> --node-address=localhost:5000 --private-key="some-private-key"
-  ```
-- **View Bucket**: Retrieves details of a specific bucket.
-  ```sh
-  akavecli ipc bucket view <bucket-name> --node-address=localhost:5000 --private-key="some-private-key"
-  ```
-- **List Buckets**: List all available buckets.
-  ```sh
-  akavecli ipc bucket list --node-address=localhost:5000 --private-key="some-private-key"
+  akavecli bucket list --node-address=localhost:5000 --private-key="some-private-key"
   ```
 ### File Commands
 - **List Files**: List all files in a bucket.
   ```sh
-  akavecli ipc file list <bucket-name> --node-address=localhost:5000 --private-key="some-private-key"
+  akavecli file list <bucket-name> --node-address=localhost:5000 --private-key="some-private-key"
   ```
 - **File Info**: Retrieves file information.
   ```sh
-  akavecli ipc file info <bucket-name> <file-name> --node-address=localhost:5000 --private-key="some-private-key"
+  akavecli file info <bucket-name> <file-name> --node-address=localhost:5000 --private-key="some-private-key"
   ```
 - **Upload File**: Uploads a file to a bucket(`-e` is optional, key length **must be 32 bytes** long, `disable-erasure-coding` is optional)
   ```sh
-  akavecli ipc file upload <bucket-name> <file-path> -e="encryption-key" --disable-erasure-coding --node-address=localhost:5000 --private-key="some-private-key"
+  akavecli file upload <bucket-name> <file-path> -e="encryption-key" --disable-erasure-coding --node-address=localhost:5000 --private-key="some-private-key"
   ```
 - **Download File**: Downloads a file from a bucket(`-e` is optional, key length **must be 32 bytes** long, `disable-erasure-coding` is optional)
   ```sh
-  akavecli ipc file download <bucket-name> <file-name> <destination-path> -e="encryption-key" --disable-erasure-coding --node-address=localhost:5000 --private-key="some-private-key"
-  ``` 
+  akavecli file download <bucket-name> <file-name> <destination-path> -e="encryption-key" --disable-erasure-coding --node-address=localhost:5000 --private-key="some-private-key"
+  ```
+
+### Wallet Commands
+- **Create Wallet**: Creates a new wallet with a generated private key.
+  ```sh
+  akavecli wallet create <wallet-name>
+  ```
+- **List Wallets**: Lists all available wallets with their addresses.
+  ```sh
+  akavecli wallet list
+  ```
+- **Export Private Key**: Exports the private key for a specific wallet.
+  ```sh
+  akavecli wallet export-key <wallet-name>
+  ```
+- **Import Wallet**: Imports a wallet using an existing private key.
+  ```sh
+  akavecli wallet import <wallet-name> <private-key>
+  ```
+- **Check Balance**: Shows the balance for a wallet.
+  ```sh
+  akavecli wallet balance <wallet-name>
+  ```
+  Or check the balance of the first available wallet:
+  ```sh
+  akavecli wallet balance
+  ```

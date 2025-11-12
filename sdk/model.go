@@ -5,6 +5,7 @@
 package sdk
 
 import (
+	"fmt"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -35,18 +36,6 @@ type Chunk struct {
 	Index       int64
 }
 
-// AkaveBlockData is a akavenode block metadata.
-type AkaveBlockData struct {
-	Permit      string
-	NodeAddress string
-	NodeID      string
-}
-
-// FilecoinBlockData is a filecoin block metadata.
-type FilecoinBlockData struct {
-	BaseURL string
-}
-
 // FileBlockUpload is a piece of metadata of some file used for upload.
 type FileBlockUpload struct {
 	CID  string
@@ -62,8 +51,9 @@ type FileBlockDownload struct {
 	CID  string
 	Data []byte
 
-	Filecoin *FilecoinBlockData
-	Akave    *AkaveBlockData
+	Permit      string
+	NodeAddress string
+	NodeID      string
 }
 
 // FileListItem contains bucket file list file meta information.
@@ -269,6 +259,43 @@ func (us *uploadState) listPreCreatedChunks() []chunkWithTx {
 	}
 
 	return res
+}
+
+// ArchivalMetadata contains file metadata with chunks and blocks including PDP data.
+type ArchivalMetadata struct {
+	BucketName string
+	Name       string
+	Chunks     []ArchivalChunk
+}
+
+// ArchivalChunk contains chunk metadata with blocks.
+type ArchivalChunk struct {
+	Chunk
+	Blocks []ArchivalBlock
+}
+
+// ArchivalBlock contains block metadata with PDP data.
+type ArchivalBlock struct {
+	CID     string
+	Size    int64
+	PDPData *PDPBlockData
+}
+
+// PDPBlockData contains PDP data for a block.
+type PDPBlockData struct {
+	URL       string
+	Offset    int64
+	Size      int64
+	DataSetID uint64
+}
+
+// ErrMissingArchivalBlock is returned when archival block metadata is missing.
+type ErrMissingArchivalBlock struct {
+	BlockCID string
+}
+
+func (e ErrMissingArchivalBlock) Error() string {
+	return fmt.Sprintf("missing archival block metadata for block CID %s", e.BlockCID)
 }
 
 type chunkWithTx struct {

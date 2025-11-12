@@ -39,9 +39,9 @@ func PickNodeRPCAddress(t testing.TB) string {
 	return *nodeAddress
 }
 
-func createTempFile(t *testing.T, size int64) (string, error) {
+func createTempFile(t *testing.T, prefix string, size int64) (string, error) {
 	t.Helper()
-	tempFile, err := os.CreateTemp(t.TempDir(), "test-file")
+	tempFile, err := os.CreateTemp(t.TempDir(), fmt.Sprintf("%s-*", prefix))
 	if err != nil {
 		return "", err
 	}
@@ -78,6 +78,15 @@ func captureCobraOutput(cmd *cobra.Command, args []string) (string, string, erro
 
 	stdout := stdoutBuf.String()
 	stderr := stderrBuf.String()
+
+	// Reset flag values to defaults after each command execution to prevent state leakage between tests
+	encryptionKey = ""
+	useMetadataEncryption = false
+	privateKey = ""
+	bucketListLimit = 20
+	fileListLimit = 20
+	bucketListOffset = 0
+	fileListOffset = 0
 
 	return stdout, stderr, err
 }

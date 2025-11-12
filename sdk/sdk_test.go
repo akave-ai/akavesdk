@@ -5,8 +5,6 @@ package sdk_test
 
 import (
 	"bytes"
-	"crypto/rand"
-	"encoding/hex"
 	"flag"
 	"os"
 	"strings"
@@ -94,21 +92,9 @@ func TestRandomFile(t *testing.T) {
 	require.EqualValues(t, f1.Bytes(), f2.Bytes())
 }
 
-func generateAny2MBFile(t *testing.T) *bytes.Buffer {
-	data := testrand.Bytes(t, 2*memory.MB.ToInt64())
-	return bytes.NewBuffer(data)
-}
-
 func generate10MiBFile(t *testing.T, seed int64) *bytes.Buffer {
 	data := testrand.BytesD(t, seed, 10*memory.MiB.ToInt64())
 	return bytes.NewBuffer(data)
-}
-
-func randomBucketName(t require.TestingT, size int) string {
-	b := make([]byte, size)
-	_, err := rand.Read(b)
-	require.NoError(t, err)
-	return hex.EncodeToString(b)
 }
 
 // checks lengths, first and last N bytes.

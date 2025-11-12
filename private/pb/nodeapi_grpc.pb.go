@@ -237,21 +237,20 @@ var NodeAPI_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	StreamAPI_FileUploadCreate_FullMethodName          = "/nodeapi.StreamAPI/FileUploadCreate"
-	StreamAPI_FileUploadChunkCreate_FullMethodName     = "/nodeapi.StreamAPI/FileUploadChunkCreate"
-	StreamAPI_FileUploadBlock_FullMethodName           = "/nodeapi.StreamAPI/FileUploadBlock"
-	StreamAPI_FileUploadCommit_FullMethodName          = "/nodeapi.StreamAPI/FileUploadCommit"
-	StreamAPI_FileDownloadCreate_FullMethodName        = "/nodeapi.StreamAPI/FileDownloadCreate"
-	StreamAPI_FileDownloadRangeCreate_FullMethodName   = "/nodeapi.StreamAPI/FileDownloadRangeCreate"
-	StreamAPI_FileDownloadChunkCreate_FullMethodName   = "/nodeapi.StreamAPI/FileDownloadChunkCreate"
-	StreamAPI_FileDownloadChunkCreateV2_FullMethodName = "/nodeapi.StreamAPI/FileDownloadChunkCreateV2"
-	StreamAPI_FileDownloadBlock_FullMethodName         = "/nodeapi.StreamAPI/FileDownloadBlock"
-	StreamAPI_FileList_FullMethodName                  = "/nodeapi.StreamAPI/FileList"
-	StreamAPI_FileListChunks_FullMethodName            = "/nodeapi.StreamAPI/FileListChunks"
-	StreamAPI_FileView_FullMethodName                  = "/nodeapi.StreamAPI/FileView"
-	StreamAPI_FileVersions_FullMethodName              = "/nodeapi.StreamAPI/FileVersions"
-	StreamAPI_FileDelete_FullMethodName                = "/nodeapi.StreamAPI/FileDelete"
-	StreamAPI_FileUploadBlockUnary_FullMethodName      = "/nodeapi.StreamAPI/FileUploadBlockUnary"
+	StreamAPI_FileUploadCreate_FullMethodName        = "/nodeapi.StreamAPI/FileUploadCreate"
+	StreamAPI_FileUploadChunkCreate_FullMethodName   = "/nodeapi.StreamAPI/FileUploadChunkCreate"
+	StreamAPI_FileUploadBlock_FullMethodName         = "/nodeapi.StreamAPI/FileUploadBlock"
+	StreamAPI_FileUploadCommit_FullMethodName        = "/nodeapi.StreamAPI/FileUploadCommit"
+	StreamAPI_FileDownloadCreate_FullMethodName      = "/nodeapi.StreamAPI/FileDownloadCreate"
+	StreamAPI_FileDownloadRangeCreate_FullMethodName = "/nodeapi.StreamAPI/FileDownloadRangeCreate"
+	StreamAPI_FileDownloadChunkCreate_FullMethodName = "/nodeapi.StreamAPI/FileDownloadChunkCreate"
+	StreamAPI_FileDownloadBlock_FullMethodName       = "/nodeapi.StreamAPI/FileDownloadBlock"
+	StreamAPI_FileList_FullMethodName                = "/nodeapi.StreamAPI/FileList"
+	StreamAPI_FileListChunks_FullMethodName          = "/nodeapi.StreamAPI/FileListChunks"
+	StreamAPI_FileView_FullMethodName                = "/nodeapi.StreamAPI/FileView"
+	StreamAPI_FileVersions_FullMethodName            = "/nodeapi.StreamAPI/FileVersions"
+	StreamAPI_FileDelete_FullMethodName              = "/nodeapi.StreamAPI/FileDelete"
+	StreamAPI_FileUploadBlockUnary_FullMethodName    = "/nodeapi.StreamAPI/FileUploadBlockUnary"
 )
 
 // StreamAPIClient is the client API for StreamAPI service.
@@ -267,7 +266,6 @@ type StreamAPIClient interface {
 	FileDownloadCreate(ctx context.Context, in *StreamFileDownloadCreateRequest, opts ...grpc.CallOption) (*StreamFileDownloadCreateResponse, error)
 	FileDownloadRangeCreate(ctx context.Context, in *StreamFileDownloadRangeCreateRequest, opts ...grpc.CallOption) (*StreamFileDownloadCreateResponse, error)
 	FileDownloadChunkCreate(ctx context.Context, in *StreamFileDownloadChunkCreateRequest, opts ...grpc.CallOption) (*StreamFileDownloadChunkCreateResponse, error)
-	FileDownloadChunkCreateV2(ctx context.Context, in *StreamFileDownloadChunkCreateRequest, opts ...grpc.CallOption) (*StreamFileDownloadChunkCreateResponseV2, error)
 	FileDownloadBlock(ctx context.Context, in *StreamFileDownloadBlockRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StreamFileBlockData], error)
 	FileList(ctx context.Context, in *StreamFileListRequest, opts ...grpc.CallOption) (*StreamFileListResponse, error)
 	FileListChunks(ctx context.Context, in *StreamFileListChunksRequest, opts ...grpc.CallOption) (*StreamFileListChunksResponse, error)
@@ -352,16 +350,6 @@ func (c *streamAPIClient) FileDownloadChunkCreate(ctx context.Context, in *Strea
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(StreamFileDownloadChunkCreateResponse)
 	err := c.cc.Invoke(ctx, StreamAPI_FileDownloadChunkCreate_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *streamAPIClient) FileDownloadChunkCreateV2(ctx context.Context, in *StreamFileDownloadChunkCreateRequest, opts ...grpc.CallOption) (*StreamFileDownloadChunkCreateResponseV2, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(StreamFileDownloadChunkCreateResponseV2)
-	err := c.cc.Invoke(ctx, StreamAPI_FileDownloadChunkCreateV2_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -460,7 +448,6 @@ type StreamAPIServer interface {
 	FileDownloadCreate(context.Context, *StreamFileDownloadCreateRequest) (*StreamFileDownloadCreateResponse, error)
 	FileDownloadRangeCreate(context.Context, *StreamFileDownloadRangeCreateRequest) (*StreamFileDownloadCreateResponse, error)
 	FileDownloadChunkCreate(context.Context, *StreamFileDownloadChunkCreateRequest) (*StreamFileDownloadChunkCreateResponse, error)
-	FileDownloadChunkCreateV2(context.Context, *StreamFileDownloadChunkCreateRequest) (*StreamFileDownloadChunkCreateResponseV2, error)
 	FileDownloadBlock(*StreamFileDownloadBlockRequest, grpc.ServerStreamingServer[StreamFileBlockData]) error
 	FileList(context.Context, *StreamFileListRequest) (*StreamFileListResponse, error)
 	FileListChunks(context.Context, *StreamFileListChunksRequest) (*StreamFileListChunksResponse, error)
@@ -498,9 +485,6 @@ func (UnimplementedStreamAPIServer) FileDownloadRangeCreate(context.Context, *St
 }
 func (UnimplementedStreamAPIServer) FileDownloadChunkCreate(context.Context, *StreamFileDownloadChunkCreateRequest) (*StreamFileDownloadChunkCreateResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method FileDownloadChunkCreate not implemented")
-}
-func (UnimplementedStreamAPIServer) FileDownloadChunkCreateV2(context.Context, *StreamFileDownloadChunkCreateRequest) (*StreamFileDownloadChunkCreateResponseV2, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method FileDownloadChunkCreateV2 not implemented")
 }
 func (UnimplementedStreamAPIServer) FileDownloadBlock(*StreamFileDownloadBlockRequest, grpc.ServerStreamingServer[StreamFileBlockData]) error {
 	return status.Errorf(codes.Unimplemented, "method FileDownloadBlock not implemented")
@@ -659,24 +643,6 @@ func _StreamAPI_FileDownloadChunkCreate_Handler(srv interface{}, ctx context.Con
 	return interceptor(ctx, in, info, handler)
 }
 
-func _StreamAPI_FileDownloadChunkCreateV2_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(StreamFileDownloadChunkCreateRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(StreamAPIServer).FileDownloadChunkCreateV2(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: StreamAPI_FileDownloadChunkCreateV2_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(StreamAPIServer).FileDownloadChunkCreateV2(ctx, req.(*StreamFileDownloadChunkCreateRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _StreamAPI_FileDownloadBlock_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(StreamFileDownloadBlockRequest)
 	if err := stream.RecvMsg(m); err != nil {
@@ -826,10 +792,6 @@ var StreamAPI_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "FileDownloadChunkCreate",
 			Handler:    _StreamAPI_FileDownloadChunkCreate_Handler,
-		},
-		{
-			MethodName: "FileDownloadChunkCreateV2",
-			Handler:    _StreamAPI_FileDownloadChunkCreateV2_Handler,
 		},
 		{
 			MethodName: "FileList",

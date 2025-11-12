@@ -5,7 +5,6 @@ package sdk_test
 
 import (
 	"bytes"
-	"context"
 	"io"
 	"testing"
 
@@ -20,7 +19,7 @@ import (
 
 func TestBuildChunkDag(t *testing.T) {
 	file := generate10MiBFile(t, 2024)
-	actual, err := sdk.BuildDAG(context.Background(), file, 1*memory.MiB.ToInt64(), nil)
+	actual, err := sdk.BuildDAG(t.Context(), file, 1*memory.MiB.ToInt64())
 	require.NotNil(t, actual)
 	require.NoError(t, err)
 
@@ -40,7 +39,7 @@ func TestChunkSize(t *testing.T) {
 	t.Run("without erasure coding", func(t *testing.T) {
 		file := generate10MiBFile(t, 2024)
 
-		actual, err := sdk.BuildDAG(context.Background(), file, memory.MiB.ToInt64(), nil)
+		actual, err := sdk.BuildDAG(t.Context(), file, memory.MiB.ToInt64())
 		require.NoError(t, err)
 		require.Equal(t, uint64(10485900), actual.EncodedSize)
 
@@ -62,7 +61,7 @@ func TestChunkSize(t *testing.T) {
 
 		blockSize := int64(len(data) / (ec.DataBlocks + ec.ParityBlocks))
 
-		actual, err := sdk.BuildDAG(context.Background(), bytes.NewBuffer(data), blockSize, nil)
+		actual, err := sdk.BuildDAG(t.Context(), bytes.NewBuffer(data), blockSize)
 		require.NoError(t, err)
 		require.Equal(t, uint64(20972000), actual.EncodedSize)
 
@@ -91,7 +90,7 @@ func TestRootCIDBuilder(t *testing.T) {
 		require.NoError(t, err)
 
 		f := bytes.NewBuffer(testrand.BytesD(t, 2024, memory.MiB.ToInt64()))
-		chunkDAG, err := sdk.BuildDAG(context.Background(), f, memory.MiB.ToInt64(), nil)
+		chunkDAG, err := sdk.BuildDAG(t.Context(), f, memory.MiB.ToInt64())
 		require.NoError(t, err)
 		require.Len(t, chunkDAG.Blocks, 1)
 
@@ -107,7 +106,7 @@ func TestRootCIDBuilder(t *testing.T) {
 		require.NoError(t, err)
 
 		f := bytes.NewBuffer(testrand.BytesD(t, 2024, 10*memory.MiB.ToInt64()))
-		chunkDAG, err := sdk.BuildDAG(context.Background(), f, memory.MiB.ToInt64(), nil)
+		chunkDAG, err := sdk.BuildDAG(t.Context(), f, memory.MiB.ToInt64())
 		require.NoError(t, err)
 		require.Len(t, chunkDAG.Blocks, 10)
 
@@ -126,11 +125,11 @@ func TestRootCIDBuilder(t *testing.T) {
 		chunk1 := io.LimitReader(f, 32*memory.MiB.ToInt64())
 		chunk2 := io.LimitReader(f, 32*memory.MiB.ToInt64())
 
-		chunk1DAG, err := sdk.BuildDAG(context.Background(), chunk1, memory.MiB.ToInt64(), nil)
+		chunk1DAG, err := sdk.BuildDAG(t.Context(), chunk1, memory.MiB.ToInt64())
 		require.NoError(t, err)
 		require.NoError(t, builder.AddLink(chunk1DAG.CID, chunk1DAG.RawDataSize, chunk1DAG.EncodedSize))
 
-		chunk2DAG, err := sdk.BuildDAG(context.Background(), chunk2, memory.MiB.ToInt64(), nil)
+		chunk2DAG, err := sdk.BuildDAG(t.Context(), chunk2, memory.MiB.ToInt64())
 		require.NoError(t, err)
 		require.NoError(t, builder.AddLink(chunk2DAG.CID, chunk2DAG.RawDataSize, chunk2DAG.EncodedSize))
 

@@ -22,6 +22,7 @@ import (
 // Bytes returns a slice of random bytes of the given size.
 func Bytes(t testing.TB, size int64) []byte {
 	t.Helper()
+
 	data := make([]byte, size)
 	_, err := rand.Read(data)
 	if err != nil {
@@ -33,6 +34,7 @@ func Bytes(t testing.TB, size int64) []byte {
 // BytesD returns a slice of random bytes of the given size with a deterministic seed.
 func BytesD(t testing.TB, seed, size int64) []byte {
 	t.Helper()
+
 	data := make([]byte, size)
 	random := rand2.New(rand2.NewSource(seed))
 	_, err := random.Read(data)
@@ -54,8 +56,10 @@ func String(length int) string {
 	return string(buffer)
 }
 
-// GenerateRandomNonce generates a random bit.Int nonce.
-func GenerateRandomNonce(t testing.TB) *big.Int {
+// Nonce generates a random bit.Int nonce.
+func Nonce(t testing.TB) *big.Int {
+	t.Helper()
+
 	b := make([]byte, 32)
 
 	_, err := rand.Read(b)
@@ -66,9 +70,10 @@ func GenerateRandomNonce(t testing.TB) *big.Int {
 	return big.NewInt(0).SetBytes(b)
 }
 
-// GenPeerID generates a peer.ID from a seed string deterministically.
-func GenPeerID(t testing.TB, seed string) peer.ID {
+// PeerID generates a peer.ID from a seed string deterministically.
+func PeerID(t testing.TB, seed string) peer.ID {
 	t.Helper()
+
 	hash := sha256.Sum256([]byte(seed))
 	privateKey, _, err := libp2pCrypto.GenerateEd25519Key(bytes.NewReader(hash[:]))
 	require.NoError(t, err)
@@ -77,8 +82,10 @@ func GenPeerID(t testing.TB, seed string) peer.ID {
 	return peerId
 }
 
-// GenerateRandomCID returns cid, generated from random byte data.
-func GenerateRandomCID(t testing.TB) cid.Cid {
+// CID returns cid, generated from random byte data.
+func CID(t testing.TB) cid.Cid {
+	t.Helper()
+
 	data := make([]byte, 32)
 	_, err := rand.Read(data)
 	require.NoError(t, err)
@@ -86,4 +93,26 @@ func GenerateRandomCID(t testing.TB) cid.Cid {
 	mh, err := multihash.Sum(data, multihash.SHA2_256, -1)
 	require.NoError(t, err)
 	return cid.NewCidV1(cid.DagProtobuf, mh)
+}
+
+// DeterministicCID returns cid, generated from deterministic byte data.
+func DeterministicCID(t testing.TB, seed int64) cid.Cid {
+	t.Helper()
+
+	data := make([]byte, 32)
+	random := rand2.New(rand2.NewSource(seed))
+	_, err := random.Read(data)
+	require.NoError(t, err)
+
+	mh, err := multihash.Sum(data, multihash.SHA2_256, -1)
+	require.NoError(t, err)
+	return cid.NewCidV1(cid.DagProtobuf, mh)
+}
+
+// CIDStrippedPrefix returns a [32]byte array, generated from random byte data, stripping the first 4 bytes of the CID.
+func CIDStrippedPrefix(t testing.TB) [32]byte {
+	c := CID(t)
+	var cFixed [32]byte
+	copy(cFixed[:], c.Bytes()[4:])
+	return cFixed
 }
