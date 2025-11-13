@@ -60,7 +60,6 @@ service StreamAPI {
   rpc FileDownloadCreate (StreamFileDownloadCreateRequest) returns (StreamFileDownloadCreateResponse) {}
   rpc FileDownloadRangeCreate (StreamFileDownloadRangeCreateRequest) returns (StreamFileDownloadCreateResponse) {}
   rpc FileDownloadChunkCreate (StreamFileDownloadChunkCreateRequest) returns (StreamFileDownloadChunkCreateResponse) {}
-  rpc FileDownloadChunkCreateV2 (StreamFileDownloadChunkCreateRequest) returns (StreamFileDownloadChunkCreateResponseV2) {}
   rpc FileDownloadBlock (StreamFileDownloadBlockRequest) returns (stream StreamFileBlockData) {}
   rpc FileList (StreamFileListRequest) returns (StreamFileListResponse) {}
   rpc FileListChunks (StreamFileListChunksRequest) returns (StreamFileListChunksResponse) {}
@@ -177,26 +176,6 @@ message StreamFileDownloadChunkCreateResponse {
     string node_address = 3;
     string node_id = 4;
     string permit = 5;
-  }
-}
-
-message StreamFileDownloadChunkCreateResponseV2 {
-  repeated BlockDownload blocks = 1;
-
-  message BlockDownload {
-    string cid = 1;
-    int64 size = 2;
-    Akave akave = 3;
-    Filecoin filecoin = 4;
-
-    message Akave {
-      string node_id = 1;
-      string node_address = 2;
-    }
-
-    message Filecoin {
-      string sp_address = 1;
-    }
   }
 }
 

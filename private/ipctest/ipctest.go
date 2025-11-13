@@ -8,13 +8,17 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"errors"
+	"flag"
 	"math/big"
+	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/txpool"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -22,6 +26,39 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/zeebo/errs"
 )
+
+var (
+	// DialURI is flag to set ipc dial uri.
+	DialURI = flag.String("ipc-rpc-uri", os.Getenv("DIAL_URI"), "flag to set ipc dial uri for client tests")
+	// WsURI is flag to set ipc ws uri.
+	WsURI = flag.String("ipc-ws-uri", os.Getenv("WS_URI"), "flag to set ipc ws uri for client tests")
+	// PrivateKey is flag to set deployers hex private key.
+	PrivateKey = flag.String("private-key", os.Getenv("PRIVATE_KEY"), "flag to set deployers hex private key for client tests")
+)
+
+// PickDialURI picks IPC provider URI.
+func PickDialURI(t testing.TB) string {
+	if *DialURI == "" || strings.EqualFold(*DialURI, "omit") {
+		t.Skip("dial uri flag missing, example: -DIAL_URI=<dial uri>")
+	}
+	return *DialURI
+}
+
+// PickWsURI picks IPC ws URI.
+func PickWsURI(t testing.TB) string {
+	if *WsURI == "" || strings.EqualFold(*WsURI, "omit") {
+		t.Skip("ws uri flag missing, example: -WS_URI=<ws uri>")
+	}
+	return *WsURI
+}
+
+// PickPrivateKey picks hex private key of deployer.
+func PickPrivateKey(t testing.TB) string {
+	if *PrivateKey == "" || strings.EqualFold(*PrivateKey, "omit") {
+		t.Skip("private key flag missing, example: -PRIVATE_KEY=<deployers hex private key>")
+	}
+	return *PrivateKey
+}
 
 var mu sync.Mutex
 
@@ -73,6 +110,11 @@ func NewFundedAccount(t *testing.T, pk, dialUri string, amount *big.Int) *ecdsa.
 
 	t.Fatalf("failed to deposit account %d times", maxRetries)
 	return nil
+}
+
+// PrivateKeyToHex returns the private key in hex format without 0x prefix for SDK compatibility.
+func PrivateKeyToHex(priv *ecdsa.PrivateKey) string {
+	return hexutil.Encode(crypto.FromECDSA(priv))[2:]
 }
 
 func deposit(ctx context.Context, client *ethclient.Client, signer types.Signer, dest common.Address, pk *ecdsa.PrivateKey, amount *big.Int) error {

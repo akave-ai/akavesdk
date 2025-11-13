@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/akave-ai/akavesdk/private/ipc"
+	"github.com/akave-ai/akavesdk/private/testrand"
 )
 
 func TestGenerateNonce(t *testing.T) {
@@ -84,4 +85,25 @@ func TestCalculateBucketID(t *testing.T) {
 		bucketID := ipc.CalculateBucketID(testCase.BucketName, testCase.Address)
 		require.Equal(t, testCase.Expected, hex.EncodeToString(bucketID))
 	}
+}
+
+func TestFromByteArrayCID(t *testing.T) {
+	// Generate a random CID
+	originalCID := testrand.CID(t)
+
+	// Extract the data (last 32 bytes)
+	var data [32]byte
+	copy(data[:], originalCID.Bytes()[4:])
+
+	// Reconstruct the CID using FromByteArrayCID
+	reconstructedCID, err := ipc.FromByteArrayCID(data)
+	require.NoError(t, err)
+	require.NotNil(t, reconstructedCID)
+
+	// Check that it matches the original
+	require.Equal(t, originalCID, reconstructedCID)
+
+	// Check that the CID is valid
+	require.Equal(t, uint64(1), reconstructedCID.Version())
+	require.Equal(t, uint64(0x70), reconstructedCID.Type()) // dag-pb
 }

@@ -40,20 +40,20 @@ func (p *connectionPool) createIPCClient(addr string, pooled bool) (pb.IPCNodeAP
 	return pb.NewIPCNodeAPIClient(conn), conn.Close, nil
 }
 
-func (p *connectionPool) createStreamingClient(addr string, pooled bool) (pb.StreamAPIClient, func() error, error) {
+func (p *connectionPool) createArchivalClient(addr string, pooled bool) (pb.IPCArchivalAPIClient, func() error, error) {
 	if pooled {
 		conn, err := p.get(addr)
 		if err != nil {
 			return nil, nil, err
 		}
-		return pb.NewStreamAPIClient(conn), nil, nil
+		return pb.NewIPCArchivalAPIClient(conn), nil, nil
 	}
 
 	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, nil, err
 	}
-	return pb.NewStreamAPIClient(conn), conn.Close, nil
+	return pb.NewIPCArchivalAPIClient(conn), conn.Close, nil
 }
 
 func (p *connectionPool) get(addr string) (*grpc.ClientConn, error) {

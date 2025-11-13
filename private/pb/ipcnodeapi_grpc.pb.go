@@ -30,7 +30,6 @@ const (
 	IPCNodeAPI_FileDownloadChunkCreate_FullMethodName = "/ipcnodeapi.IPCNodeAPI/FileDownloadChunkCreate"
 	IPCNodeAPI_FileDownloadBlock_FullMethodName       = "/ipcnodeapi.IPCNodeAPI/FileDownloadBlock"
 	IPCNodeAPI_FileList_FullMethodName                = "/ipcnodeapi.IPCNodeAPI/FileList"
-	IPCNodeAPI_FileListChunks_FullMethodName          = "/ipcnodeapi.IPCNodeAPI/FileListChunks"
 	IPCNodeAPI_FileUploadBlockUnary_FullMethodName    = "/ipcnodeapi.IPCNodeAPI/FileUploadBlockUnary"
 )
 
@@ -51,7 +50,6 @@ type IPCNodeAPIClient interface {
 	FileDownloadChunkCreate(ctx context.Context, in *IPCFileDownloadChunkCreateRequest, opts ...grpc.CallOption) (*IPCFileDownloadChunkCreateResponse, error)
 	FileDownloadBlock(ctx context.Context, in *IPCFileDownloadBlockRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[IPCFileBlockData], error)
 	FileList(ctx context.Context, in *IPCFileListRequest, opts ...grpc.CallOption) (*IPCFileListResponse, error)
-	FileListChunks(ctx context.Context, in *IPCFileListChunksRequest, opts ...grpc.CallOption) (*IPCFileListChunksResponse, error)
 	FileUploadBlockUnary(ctx context.Context, in *IPCFileBlockData, opts ...grpc.CallOption) (*IPCFileUploadBlockResponse, error)
 }
 
@@ -185,16 +183,6 @@ func (c *iPCNodeAPIClient) FileList(ctx context.Context, in *IPCFileListRequest,
 	return out, nil
 }
 
-func (c *iPCNodeAPIClient) FileListChunks(ctx context.Context, in *IPCFileListChunksRequest, opts ...grpc.CallOption) (*IPCFileListChunksResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(IPCFileListChunksResponse)
-	err := c.cc.Invoke(ctx, IPCNodeAPI_FileListChunks_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *iPCNodeAPIClient) FileUploadBlockUnary(ctx context.Context, in *IPCFileBlockData, opts ...grpc.CallOption) (*IPCFileUploadBlockResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(IPCFileUploadBlockResponse)
@@ -222,7 +210,6 @@ type IPCNodeAPIServer interface {
 	FileDownloadChunkCreate(context.Context, *IPCFileDownloadChunkCreateRequest) (*IPCFileDownloadChunkCreateResponse, error)
 	FileDownloadBlock(*IPCFileDownloadBlockRequest, grpc.ServerStreamingServer[IPCFileBlockData]) error
 	FileList(context.Context, *IPCFileListRequest) (*IPCFileListResponse, error)
-	FileListChunks(context.Context, *IPCFileListChunksRequest) (*IPCFileListChunksResponse, error)
 	FileUploadBlockUnary(context.Context, *IPCFileBlockData) (*IPCFileUploadBlockResponse, error)
 	mustEmbedUnimplementedIPCNodeAPIServer()
 }
@@ -266,9 +253,6 @@ func (UnimplementedIPCNodeAPIServer) FileDownloadBlock(*IPCFileDownloadBlockRequ
 }
 func (UnimplementedIPCNodeAPIServer) FileList(context.Context, *IPCFileListRequest) (*IPCFileListResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method FileList not implemented")
-}
-func (UnimplementedIPCNodeAPIServer) FileListChunks(context.Context, *IPCFileListChunksRequest) (*IPCFileListChunksResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method FileListChunks not implemented")
 }
 func (UnimplementedIPCNodeAPIServer) FileUploadBlockUnary(context.Context, *IPCFileBlockData) (*IPCFileUploadBlockResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method FileUploadBlockUnary not implemented")
@@ -474,24 +458,6 @@ func _IPCNodeAPI_FileList_Handler(srv interface{}, ctx context.Context, dec func
 	return interceptor(ctx, in, info, handler)
 }
 
-func _IPCNodeAPI_FileListChunks_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(IPCFileListChunksRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(IPCNodeAPIServer).FileListChunks(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: IPCNodeAPI_FileListChunks_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(IPCNodeAPIServer).FileListChunks(ctx, req.(*IPCFileListChunksRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _IPCNodeAPI_FileUploadBlockUnary_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(IPCFileBlockData)
 	if err := dec(in); err != nil {
@@ -554,10 +520,6 @@ var IPCNodeAPI_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _IPCNodeAPI_FileList_Handler,
 		},
 		{
-			MethodName: "FileListChunks",
-			Handler:    _IPCNodeAPI_FileListChunks_Handler,
-		},
-		{
 			MethodName: "FileUploadBlockUnary",
 			Handler:    _IPCNodeAPI_FileUploadBlockUnary_Handler,
 		},
@@ -574,5 +536,111 @@ var IPCNodeAPI_ServiceDesc = grpc.ServiceDesc{
 			ServerStreams: true,
 		},
 	},
+	Metadata: "ipcnodeapi.proto",
+}
+
+const (
+	IPCArchivalAPI_FileResolveBlock_FullMethodName = "/ipcnodeapi.IPCArchivalAPI/FileResolveBlock"
+)
+
+// IPCArchivalAPIClient is the client API for IPCArchivalAPI service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// IPCArchivalAPI defines archival API extension.
+type IPCArchivalAPIClient interface {
+	FileResolveBlock(ctx context.Context, in *IPCFileResolveBlockRequest, opts ...grpc.CallOption) (*IPCFileResolveBlockResponse, error)
+}
+
+type iPCArchivalAPIClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewIPCArchivalAPIClient(cc grpc.ClientConnInterface) IPCArchivalAPIClient {
+	return &iPCArchivalAPIClient{cc}
+}
+
+func (c *iPCArchivalAPIClient) FileResolveBlock(ctx context.Context, in *IPCFileResolveBlockRequest, opts ...grpc.CallOption) (*IPCFileResolveBlockResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(IPCFileResolveBlockResponse)
+	err := c.cc.Invoke(ctx, IPCArchivalAPI_FileResolveBlock_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// IPCArchivalAPIServer is the server API for IPCArchivalAPI service.
+// All implementations must embed UnimplementedIPCArchivalAPIServer
+// for forward compatibility.
+//
+// IPCArchivalAPI defines archival API extension.
+type IPCArchivalAPIServer interface {
+	FileResolveBlock(context.Context, *IPCFileResolveBlockRequest) (*IPCFileResolveBlockResponse, error)
+	mustEmbedUnimplementedIPCArchivalAPIServer()
+}
+
+// UnimplementedIPCArchivalAPIServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedIPCArchivalAPIServer struct{}
+
+func (UnimplementedIPCArchivalAPIServer) FileResolveBlock(context.Context, *IPCFileResolveBlockRequest) (*IPCFileResolveBlockResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method FileResolveBlock not implemented")
+}
+func (UnimplementedIPCArchivalAPIServer) mustEmbedUnimplementedIPCArchivalAPIServer() {}
+func (UnimplementedIPCArchivalAPIServer) testEmbeddedByValue()                        {}
+
+// UnsafeIPCArchivalAPIServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to IPCArchivalAPIServer will
+// result in compilation errors.
+type UnsafeIPCArchivalAPIServer interface {
+	mustEmbedUnimplementedIPCArchivalAPIServer()
+}
+
+func RegisterIPCArchivalAPIServer(s grpc.ServiceRegistrar, srv IPCArchivalAPIServer) {
+	// If the following call pancis, it indicates UnimplementedIPCArchivalAPIServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&IPCArchivalAPI_ServiceDesc, srv)
+}
+
+func _IPCArchivalAPI_FileResolveBlock_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(IPCFileResolveBlockRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IPCArchivalAPIServer).FileResolveBlock(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: IPCArchivalAPI_FileResolveBlock_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IPCArchivalAPIServer).FileResolveBlock(ctx, req.(*IPCFileResolveBlockRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// IPCArchivalAPI_ServiceDesc is the grpc.ServiceDesc for IPCArchivalAPI service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var IPCArchivalAPI_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "ipcnodeapi.IPCArchivalAPI",
+	HandlerType: (*IPCArchivalAPIServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "FileResolveBlock",
+			Handler:    _IPCArchivalAPI_FileResolveBlock_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
 	Metadata: "ipcnodeapi.proto",
 }

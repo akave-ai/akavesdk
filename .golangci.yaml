@@ -1,172 +1,168 @@
+version: "2"
 run:
   issues-exit-code: 1
   tests: true
-
-linters:
-  enable:
-    - bidichk                 # find dangerous bidi unicode symbols
-    - bodyclose               # find unclosed http response bodies
-    - dogsled                 # checks for too many ignored arguments
-    - durationcheck           # verifies whether durations are multiplied, usually a mistake
-    - errcheck                # find unchecked errors
-    - errorlint               # finds misuses of errors
-    - copyloopvar             # detects places where loop variables are copied
-    - gocritic                # checks for style, performance issues, and common programming errors
-    - godot                   # dots for everything
-    - err113                  # check error expressions
-    - gofmt                   # sanity check formatting
-    - goprintffuncname        # checks that printf-like functions are named with `f` at the end [fast: true, auto-fix: false]
-    - govet                   # check standard vet rules
-    - importas                # verify that imports are consistent
-    - ineffassign             # find ineffective assignments
-    - makezero                # verifies that slices use defaults
-    - misspell                # check spelling
-    - nakedret                # check for naked returns
-    - nilerr                  # checks for misuses of `if err != nil { return nil }`
-    - noctx                   # finds locations that should use context
-    - revive                  # check standard linting rules
-    - tenv                    # ensure we use t.SetEnv instead of os.SetEnv
-    - unconvert               # remove unnecessary conversions
-    - prealloc                # easy optimizations
-    - nolintlint              # checks that nolint directives are correct
-    - whitespace              # checks for leading/trailing newlines
-    - nestif                  # looks useful, however needs work
-    - unparam                 # check for unused parameters
-    - staticcheck
-    - wastedassign
-    - nilnil
-    #TODO#- forcetypeassert   # needs work to replace unchecked interface type assertion
-    #TODO#- gochecknoglobals  # needs work to remove globals
-    #TODO#- gochecknoinits    # needs work to remove init()
-  disable:
-    - asciicheck       # non-ascii is allowed
-    - containedctx     # gives false positives, however might be good to re-evaluate
-    - contextcheck     # doesn't look like it's useful
-    - cyclop           # this complexity is not a good metric
-    - decorder         # not that useful
-    - depguard         # unused
-    - dupl             # slow
-    - errchkjson       # false positives, checks for non-encodable json types
-    - errname          # we have different approach
-    - exhaustive       # doesn't handle default case
-    - forbidigo        # not useful
-    - funlen           # no limit on func length
-    - gci              # we have custom import checking
-    - gocognit         # this complexity is not a good metric
-    - goconst          # check for things that could be replaced by constants
-    - gocyclo          # this complexity is not a good metric
-    - godox            # too many false positivies
-    - goheader         # separate tool
-    - goimports        # disabled, because it's slow
-    - gomoddirectives  # not useful
-    - gomodguard       # not useful
-    - gosec            # needs tweaking
-    - gosimple         # part of staticcheck
-    - grouper          # we have a custom implementation
-    - ireturn          # not that useful for us
-    - lll              # don't need this check
-    - maintidx         # code complexity based on halsted V and cyclomatic, both shown to be ineffective
-    - nlreturn         # non-important code style
-    - paralleltest     # too many false positives
-    - predeclared      # kind of useful, but not critical
-    - promlinter       # not relevant
-    - rowserrcheck     # checks if sql.Rows.Err is checked correctly - Disabled  because it reports false positive with defer statements after Query call
-    - sqlclosecheck    # we have tagsql, which checks this better
-    - stylecheck       # has false positives
-    - tagliatelle      # not our style
-    - testpackage      # sometimes it's useful to have tests on private funcs
-    - thelper          # too many false positives
-    - tparallel        # false positivies
-    - unused           # part of staticcheck
-    - varnamelen       # unenecssary
-    - wrapcheck        # too much noise and false positives
-    - wsl              # too much noise
-  fast: false
-
 output:
   formats:
-    - format: colored-line-number
-  print-issued-lines: true
-  print-linter-name: true
-
-linters-settings:
-  errcheck:
-    # report about not checking of errors in type assetions: `a := b.(MyStruct)`;
-    # default is false: such cases aren't reported by default.
-    check-type-assertions: false
-
-    # report about assignment of errors to blank identifier: `num, _ := strconv.Atoi(numStr)`;
-    # default is false: such cases aren't reported by default.
-    check-blank: false
-  gocritic:
-    disabled-checks:
-      - ifElseChain
-  gofmt:
-    simplify: true
-  gocyclo:
-    min-complexity: 10
-  nestif:
-    min-complexity: 7
-  dupl:
-    threshold: 150
-  goconst:
-    min-len: 3
-    min-occurrences: 3
-  lll:
-    line-length: 140
-    tab-width: 1
-  unparam:
-    # Inspect exported functions, default is false. Set to true if no external program/library imports your code.
-    # XXX: if you enable this setting, unparam will report a lot of false-positives in text editors:
-    # if it's called for subdir of a project it can't find external interfaces. All text editor integrations
-    # with golangci-lint call it on a directory with the changed file.
-    check-exported: false
-  nakedret:
-    # make an issue if func has more lines of code than this setting and it has naked returns; default is 30
-    max-func-lines: 10
-  prealloc:
-    # Report preallocation suggestions only on simple loops that have no returns/breaks/continues/gotos in them.
-    # True by default.
-    simple: true
-    range-loops: true # Report preallocation suggestions on range loops, true by default
-    for-loops: false # Report preallocation suggestions on for loops, false by default
-  whitespace:
-    # Enforces newlines (or comments) after every multi-line if statement.
-    # Default: false
-    multi-if: true
-    # Enforces newlines (or comments) after every multi-line function signature.
-    # Default: false
-    multi-func: true
-
+    text:
+      path: stdout
+      print-linter-name: true
+      print-issued-lines: true
+linters:
+  enable:
+    - bidichk               # find dangerous bidi unicode symbols
+    - copyloopvar           # detects places where loop variables are copied
+    - bodyclose             # find unclosed http response bodies
+    - dogsled               # checks for too many ignored arguments
+    - durationcheck         # verifies whether durations are multiplied, usually a mistake
+    - err113                # check error expressions
+    - errorlint             # finds misuses of errors
+    - gocritic              # checks for style, performance issues, and common programming errors
+    - godot                 # dots for everything
+    - goprintffuncname      # checks that printf-like functions are named with `f` at the end [fast: true, auto-fix: false]
+    - importas              # verify that imports are consistent
+    - makezero              # verifies that slices use defaults
+    - misspell              # check spelling
+    - nakedret              # check for naked returns
+    - nestif                # looks useful, however needs work
+    - nilerr                # checks for misuses of `if err != nil { return nil }`
+    - nilnil
+    - noctx                 # finds locations that should use context
+    - nolintlint            # checks that nolint directives are correct
+    - prealloc              # easy optimizations
+    - revive                # check standard linting rules
+    - unconvert             # remove unnecessary conversions
+    - unparam               # check for unused parameters
+    - wastedassign
+    - whitespace            # checks for leading/trailing newlines
+  disable:
+    - asciicheck            # non-ascii is allowed
+    - containedctx          # gives false positives, however might be good to re-evaluate
+    - contextcheck          # doesn't look like it's useful
+    - cyclop                # this complexity is not a good metric
+    - decorder              # not that useful
+    - depguard              # unused
+    - dupl                  # slow
+    - errchkjson            # false positives, checks for non-encodable json types
+    - errname               # we have different approach
+    - exhaustive            # doesn't handle default case
+    - forbidigo             # not useful
+    - funlen                # no limit on func length
+    - gocognit              # this complexity is not a good metric
+    - goconst               # check for things that could be replaced by constants
+    - gocyclo               # this complexity is not a good metric
+    - godox                 # too many false positivies
+    - goheader              # separate tool
+    - gomoddirectives       # not useful
+    - gomodguard            # not useful
+    - gosec                 # needs tweaking
+    - grouper               # we have a custom implementation
+    - ireturn               # not that useful for us
+    - lll                   # don't need this check
+    - maintidx              # code complexity based on halsted V and cyclomatic, both shown to be ineffective
+    - nlreturn              # non-important code style
+    - paralleltest          # too many false positives
+    - predeclared           # kind of useful, but not critical
+    - promlinter            # not relevant
+    - rowserrcheck          # checks if sql.Rows.Err is checked correctly - Disabled because it reports false positive with defer statements after Query call
+    - sqlclosecheck         # we have tagsql, which checks this better
+    - tagliatelle           # not our style
+    - testpackage           # sometimes it's useful to have tests on private funcs
+    - thelper               # too many false positives
+    - tparallel             # false positivies
+    - varnamelen            # unenecssary
+    - wrapcheck             # too much noise and false positives
+    - wsl                   # too much noise
+  settings:
+    dupl:
+      threshold: 150
+    errcheck:
+      # report about not checking of errors in type assetions: `a := b.(MyStruct)`;
+      # default is false: such cases aren't reported by default.
+      check-type-assertions: false
+      # report about assignment of errors to blank identifier: `num, _ := strconv.Atoi(numStr)`;
+      # default is false: such cases aren't reported by default.
+      check-blank: false
+    goconst:
+      min-len: 3
+      min-occurrences: 3
+    gocritic:
+      disabled-checks:
+        - ifElseChain
+    gocyclo:
+      min-complexity: 10
+    lll:
+      line-length: 140
+      tab-width: 1
+    nakedret:
+      # make an issue if func has more lines of code than this setting and it has naked returns; default is 30
+      max-func-lines: 10
+    nestif:
+      min-complexity: 7
+    prealloc:
+      # Report preallocation suggestions only on simple loops that have no returns/breaks/continues/gotos in them.
+      # True by default.
+      simple: true
+      range-loops: true # Report preallocation suggestions on range loops, true by default
+      for-loops: false # Report preallocation suggestions on for loops, false by default
+    unparam:
+      # Inspect exported functions, default is false. Set to true if no external program/library imports your code.
+      # XXX: if you enable this setting, unparam will report a lot of false-positives in text editors:
+      # if it's called for subdir of a project it can't find external interfaces. All text editor integrations
+      # with golangci-lint call it on a directory with the changed file.
+      check-exported: false
+    whitespace:
+      # Enforces newlines (or comments) after every multi-line if statement.
+      # Default: false
+      multi-if: true
+      # Enforces newlines (or comments) after every multi-line function signature.
+      # Default: false
+      multi-func: true
+  exclusions:
+    generated: lax
+    rules:
+      - linters:
+          - err113
+        text: do not define dynamic errors
+      - linters: # uninteresting, it would be nice to be consistent, but we don't want to block the build for it
+          - revive
+        text: if-return
+      - linters: # a lot of false-positives for c exports
+          - revive
+        text: var-naming
+      - linters: # uninteresting, error doesn't need to be the last type
+          - revive
+        text: error-return
+      - linters: # uninteresting, it's common to leave args unused
+          - revive
+        text: unused-parameter
+      - linters: # false positives, see https://github.com/mgechev/revive/issues/810
+          - revive
+        text: empty-block
+      - linters: # uninteresting, it's fine to redefine builtins
+          - revive
+        text: redefines-builtin-id
+    paths:
+      - .*\.pb\.go$
+      - .*\.sql\.go$
+      - third_party$
+      - builtin$
+      - examples$
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0
   new: false
-  exclude-use-default: false
-
-  exclude-files:
-    - ".*\\.pb\\.go$"
-    - ".*\\.sql\\.go$"
-
-  exclude-rules:
-    - linters:
-        - err113
-      text: "do not define dynamic errors"
-    - linters: # uninteresting, it would be nice to be consistent, but we don't want to block the build for it
-        - revive
-      text: "if-return"
-    - linters: # a lot of false-positives for c exports
-        - revive
-      text: "var-naming"
-    - linters: # uninteresting, error doesn't need to be the last type
-        - revive
-      text: "error-return"
-    - linters: # uninteresting, it's common to leave args unused
-        - revive
-      text: "unused-parameter"
-    - linters: # false positives, see https://github.com/mgechev/revive/issues/810
-        - revive
-      text: "empty-block"
-    - linters: # uninteresting, it's fine to redefine builtins
-        - revive
-      text: "redefines-builtin-id"
+formatters:
+  enable:
+    - gofmt
+  settings:
+    gofmt:
+      simplify: true
+  exclusions:
+    generated: lax
+    paths:
+      - .*\.pb\.go$
+      - .*\.sql\.go$
+      - third_party$
+      - builtin$
+      - examples$

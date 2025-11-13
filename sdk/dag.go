@@ -20,8 +20,6 @@ import (
 	"github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/sync"
 	format "github.com/ipfs/go-ipld-format"
-
-	"github.com/akave-ai/akavesdk/private/encryption"
 )
 
 var (
@@ -86,18 +84,8 @@ type ChunkDAG struct {
 }
 
 // BuildDAG builds the ChunkDAG of a file.
-// TODO: after removing normal api remove encKey from this function.
-func BuildDAG(ctx context.Context, reader io.Reader, blockSize int64, encKey []byte) (ChunkDAG, error) {
-	var splitter chunker.Splitter
-	var err error
-	if len(encKey) > 0 { // if encryption is enabled
-		splitter, err = encryption.NewSplitter(encKey, reader, blockSize)
-		if err != nil {
-			return ChunkDAG{}, err
-		}
-	} else {
-		splitter = chunker.NewSizeSplitter(io.NopCloser(reader), blockSize)
-	}
+func BuildDAG(ctx context.Context, reader io.Reader, blockSize int64) (ChunkDAG, error) {
+	splitter := chunker.NewSizeSplitter(io.NopCloser(reader), blockSize)
 
 	batching := sync.MutexWrap(datastore.NewMapDatastore())
 	store := blockstore.NewBlockstore(batching)

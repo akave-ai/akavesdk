@@ -8,8 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
-	"math/rand/v2"
+	"net/http"
 	"strings"
 	"time"
 
@@ -27,7 +26,7 @@ import (
 	"github.com/akave-ai/akavesdk/private/ipc"
 	"github.com/akave-ai/akavesdk/private/memory"
 	"github.com/akave-ai/akavesdk/private/pb"
-	"github.com/akave-ai/akavesdk/private/spclient"
+	"github.com/akave-ai/akavesdk/private/retry"
 )
 
 const (
@@ -53,10 +52,10 @@ type Option func(*SDK)
 
 // SDK is the Akave SDK.
 type SDK struct {
-	client   pb.NodeAPIClient
-	conn     *grpc.ClientConn
-	spClient *spclient.SPClient
-	ec       *erasurecode.ErasureCode
+	client     pb.NodeAPIClient
+	conn       *grpc.ClientConn
+	httpClient *http.Client
+	ec         *erasurecode.ErasureCode
 
 	maxConcurrency            int
 	blockPartSize             int64
@@ -67,8 +66,9 @@ type SDK struct {
 	parityBlocksCount         int  // 0 means no erasure coding applied
 	useMetadataEncryption     bool // encrypts bucket and file names if true
 	chunkBuffer               int
+	batchSize                 int
 
-	withRetry withRetry
+	withRetry retry.WithRetry
 }
 
 // WithMetadataEncryption sets the metadata encryption for the SDK.
@@ -113,10 +113,27 @@ func WithChunkBuffer(bufferSize int) func(*SDK) {
 	}
 }
 
+// WithBatchSize sets the chunk batch size for ipc operations.
+func WithBatchSize(batchSize int) func(*SDK) {
+	if batchSize < 1 {
+		batchSize = 1
+	}
+	return func(s *SDK) {
+		s.batchSize = batchSize
+	}
+}
+
+// WithCustomHttpClient sets a custom HTTP client for the SDK.
+func WithCustomHttpClient(client *http.Client) func(*SDK) {
+	return func(s *SDK) {
+		s.httpClient = client
+	}
+}
+
 // WithoutRetry disables retries for bucket creation and file upload ops.
 func WithoutRetry() func(*SDK) {
 	return func(s *SDK) {
-		s.withRetry = withRetry{}
+		s.withRetry = retry.WithRetry{}
 	}
 }
 
@@ -139,10 +156,11 @@ func New(address string, maxConcurrency int, blockPartSize int64, useConnectionP
 		useConnectionPool:         useConnectionPool,
 		streamingMaxBlocksInChunk: 32,
 		chunkBuffer:               0, // Default value for chunk buffer
+		batchSize:                 1,
 		// enable retires by default
-		withRetry: withRetry{
-			maxAttempts: 5,
-			baseDelay:   100 * time.Millisecond,
+		withRetry: retry.WithRetry{
+			MaxAttempts: 5,
+			BaseDelay:   100 * time.Millisecond,
 		},
 	}
 
@@ -170,14 +188,16 @@ func New(address string, maxConcurrency int, blockPartSize int64, useConnectionP
 		}
 	}
 
-	s.spClient = spclient.New()
+	if s.httpClient == nil {
+		s.httpClient = http.DefaultClient
+	}
 
 	// sanitize possibly faulty retry params.
-	if s.withRetry.maxAttempts < 0 {
-		s.withRetry.maxAttempts = 0
+	if s.withRetry.MaxAttempts < 0 {
+		s.withRetry.MaxAttempts = 0
 	}
-	if s.withRetry.baseDelay <= 100*time.Millisecond {
-		s.withRetry.baseDelay = 100 * time.Millisecond
+	if s.withRetry.BaseDelay <= 100*time.Millisecond {
+		s.withRetry.BaseDelay = 100 * time.Millisecond
 	}
 
 	return s, nil
@@ -185,24 +205,7 @@ func New(address string, maxConcurrency int, blockPartSize int64, useConnectionP
 
 // Close closes the SDK internal connection.
 func (sdk *SDK) Close() error {
-	sdk.spClient.Close()
 	return sdk.conn.Close()
-}
-
-// StreamingAPI returns SDK streaming API.
-func (sdk *SDK) StreamingAPI() *StreamingAPI {
-	return &StreamingAPI{
-		client:            pb.NewStreamAPIClient(sdk.conn),
-		conn:              sdk.conn,
-		spClient:          sdk.spClient,
-		uploadEC:          sdk.ec,
-		maxConcurrency:    sdk.maxConcurrency,
-		blockPartSize:     sdk.blockPartSize,
-		useConnectionPool: sdk.useConnectionPool,
-		encryptionKey:     sdk.encryptionKey,
-		maxBlocksInChunk:  sdk.streamingMaxBlocksInChunk,
-		chunkBuffer:       sdk.chunkBuffer,
-	}
 }
 
 // IPC returns SDK ipc API.
@@ -230,6 +233,7 @@ func (sdk *SDK) IPC() (*IPC, error) {
 		chainID:               ipcClient.ChainID(),
 		storageAddress:        connParams.StorageAddress,
 		conn:                  sdk.conn,
+		httpClient:            sdk.httpClient,
 		ec:                    sdk.ec,
 		privateKey:            sdk.privateKey,
 		maxConcurrency:        sdk.maxConcurrency,
@@ -239,82 +243,9 @@ func (sdk *SDK) IPC() (*IPC, error) {
 		maxBlocksInChunk:      sdk.streamingMaxBlocksInChunk,
 		useMetadataEncryption: sdk.useMetadataEncryption,
 		chunkBuffer:           sdk.chunkBuffer,
+		batchSize:             sdk.batchSize,
 		withRetry:             sdk.withRetry,
 	}, nil
-}
-
-// CreateBucket creates a new bucket.
-func (sdk *SDK) CreateBucket(ctx context.Context, name string) (_ *BucketCreateResult, err error) {
-	defer mon.Task()(&ctx, name)(&err)
-
-	if len(name) < minBucketNameLength {
-		return nil, errSDK.Errorf("invalid bucket name")
-	}
-
-	res, err := sdk.client.BucketCreate(ctx, &pb.BucketCreateRequest{Name: name})
-	if err != nil {
-		return nil, errSDK.Wrap(err)
-	}
-
-	return &BucketCreateResult{
-		Name:      res.Name,
-		CreatedAt: res.CreatedAt.AsTime(),
-	}, nil
-}
-
-// ViewBucket creates a new bucket.
-func (sdk *SDK) ViewBucket(ctx context.Context, bucketName string) (_ Bucket, err error) {
-	defer mon.Task()(&ctx, bucketName)(&err)
-
-	if bucketName == "" {
-		return Bucket{}, errSDK.Errorf("empty bucket name")
-	}
-
-	res, err := sdk.client.BucketView(ctx, &pb.BucketViewRequest{
-		BucketName: bucketName,
-	})
-	if err != nil {
-		return Bucket{}, errSDK.Wrap(err)
-	}
-
-	return Bucket{
-		Name:      res.GetName(),
-		CreatedAt: res.GetCreatedAt().AsTime(),
-	}, nil
-}
-
-// ListBuckets returns list of buckets.
-func (sdk *SDK) ListBuckets(ctx context.Context) (_ []Bucket, err error) {
-	defer mon.Task()(&ctx)(&err)
-
-	res, err := sdk.client.BucketList(ctx, &pb.BucketListRequest{})
-	if err != nil {
-		return nil, errSDK.Wrap(err)
-	}
-
-	buckets := make([]Bucket, 0, len(res.Buckets))
-	for _, bucket := range res.Buckets {
-		buckets = append(buckets, Bucket{
-			Name:      bucket.GetName(),
-			CreatedAt: bucket.GetCreatedAt().AsTime(),
-		})
-	}
-
-	return buckets, nil
-}
-
-// DeleteBucket deletes a bucket by name.
-func (sdk *SDK) DeleteBucket(ctx context.Context, bucketName string) (err error) {
-	defer mon.Task()(&ctx, bucketName)(&err)
-
-	// TODO: add validation?
-
-	_, err = sdk.client.BucketDelete(ctx, &pb.BucketDeleteRequest{Name: bucketName})
-	if err != nil {
-		return errSDK.Wrap(err)
-	}
-
-	return nil
 }
 
 // MonkitStats are the monkit stats for the sdk package.
@@ -389,55 +320,6 @@ func encryptionKey(parentKey []byte, infoData ...string) ([]byte, error) {
 	}
 
 	return key, nil
-}
-
-// withRetry encapsulates retry parameters.
-type withRetry struct {
-	maxAttempts int
-	baseDelay   time.Duration
-}
-
-// do calls function until success, max retries reached or operation is cancelled with exponential backoff.
-func (retry withRetry) do(ctx context.Context, f func() (bool, error)) error {
-	needsRetry, err := f()
-	if err == nil {
-		return nil
-	}
-	if !needsRetry || retry.maxAttempts == 0 {
-		return err
-	}
-
-	sleep := func(attempt int, base time.Duration) time.Duration {
-		backoff := base * (1 << attempt)
-		jitter := time.Duration(rand.Int64N(int64(base)))
-		return backoff + jitter
-	}
-
-	for attempt := range retry.maxAttempts {
-		delay := sleep(attempt, retry.baseDelay)
-
-		slog.Debug("retrying",
-			slog.Int("attempt", attempt),
-			slog.Duration("delay", delay),
-			slog.Any("err", err),
-		)
-
-		select {
-		case <-ctx.Done():
-			return errs.Combine(fmt.Errorf("retry aborted: %w", ctx.Err()), err)
-		case <-time.After(delay):
-		}
-
-		needsRetry, err = f()
-		if err == nil {
-			return nil
-		}
-		if !needsRetry {
-			return err
-		}
-	}
-
-	return errs.Combine(errors.New("max retries exceeded"), err)
 }
 
 // isRetryableTxError checks if error on sending transaction should be retried.

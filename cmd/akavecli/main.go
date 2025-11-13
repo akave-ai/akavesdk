@@ -7,13 +7,11 @@ package main
 
 import (
 	"context"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"log"
 	"os"
-	"strings"
 
 	"github.com/spacemonkeygo/monkit/v3"
 	"github.com/spacemonkeygo/monkit/v3/environment"
@@ -41,83 +39,16 @@ var (
 		},
 	}
 
-	bucketCmd = &cobra.Command{
-		Use:   "bucket",
-		Short: "Manage buckets",
-	}
-
-	bucketCreateCmd = &cobra.Command{
-		Use:   "create",
-		Short: "Creates a new bucket",
-		Args: func(cmd *cobra.Command, args []string) error {
-			if len(args) != 1 {
-				return NewCmdParamsError(fmt.Sprintf("create bucket command expects exactly 1 argument [bucket name]; got %d", len(args)))
-			}
-
-			if args[0] == "" {
-				return NewCmdParamsError("bucket name is required")
-			}
-
-			return nil
-		},
-		RunE: cmdCreateBucket,
-	}
-
-	bucketDeleteCmd = &cobra.Command{
-		Use:   "delete",
-		Short: "Removes a bucket",
-		Args: func(cmd *cobra.Command, args []string) error {
-			if len(args) != 1 {
-				return NewCmdParamsError(fmt.Sprintf("delete bucket command expects exactly 1 argument [bucket name]; got %d", len(args)))
-			}
-
-			if args[0] == "" {
-				return NewCmdParamsError("bucket name is required")
-			}
-
-			return nil
-		},
-		RunE: cmdDeleteBucket,
-	}
-
-	bucketViewCmd = &cobra.Command{
-		Use:   "view",
-		Short: "Views a bucket's details",
-		Args: func(cmd *cobra.Command, args []string) error {
-			for i, arg := range args {
-				args[i] = strings.TrimSpace(arg)
-			}
-
-			if len(args) != 1 {
-				return NewCmdParamsError(fmt.Sprintf("create bucket command expects exactly 1 argument [bucket name]; got %d", len(args)))
-			}
-
-			if args[0] == "" {
-				return NewCmdParamsError("bucket name is required")
-			}
-
-			return nil
-		},
-		RunE: cmdViewBucket,
-	}
-
-	bucketListCmd = &cobra.Command{
-		Use:   "list",
-		Short: "Lists all buckets",
-		Args:  cobra.NoArgs,
-		RunE:  cmdListBuckets,
-	}
-
-	nodeRPCAddress       string
-	privateKey           string
-	encryptionKey        string
-	maxConcurrency       int
-	blockPartSize        int64
-	useConnectionPool    bool
-	disableErasureCoding bool
-	filecoinFlag         bool
-	enableSDKMonkitStats bool
-	accountName          string
+	nodeRPCAddress        string
+	privateKey            string
+	encryptionKey         string
+	maxConcurrency        int
+	blockPartSize         int64
+	useConnectionPool     bool
+	disableErasureCoding  bool
+	enableSDKMonkitStats  bool
+	accountName           string
+	useMetadataEncryption bool
 
 	// tracing.
 	mon = monkit.Package()
@@ -129,6 +60,9 @@ var (
 	bucketListLimit  int64
 	fileListOffset   int64
 	fileListLimit    int64
+
+	archivalMetadataVerbose bool
+	archivalDownload        bool
 )
 
 // CmdParamsError represents an error related to positional arguments.
@@ -147,39 +81,22 @@ func NewCmdParamsError(message string) error {
 }
 
 func init() {
-	bucketCmd.AddCommand(bucketCreateCmd)
-	bucketCmd.AddCommand(bucketDeleteCmd)
-	bucketCmd.AddCommand(bucketViewCmd)
-	bucketCmd.AddCommand(bucketListCmd)
+	rootCmd.AddCommand(bucketCmd)
+	rootCmd.AddCommand(fileCmd)
+	rootCmd.AddCommand(versionCmd)
+	rootCmd.AddCommand(walletCmd)
 
-	// streaming file API
-	fileStreamingCmd.AddCommand(streamingFileListCmd)
-	fileStreamingCmd.AddCommand(streamingFileInfoCmd)
-	fileStreamingCmd.AddCommand(streamingFileUploadCmd)
-	fileStreamingCmd.AddCommand(streamingFileDownloadCmd)
-	fileStreamingCmd.AddCommand(streamingFileDeleteCmd)
-	fileStreamingCmd.AddCommand(streamingFileVersionsCmd)
-	// ipc API
-	ipcCmd.AddCommand(ipcBucketCmd)
-	ipcCmd.AddCommand(ipcFileCmd)
-	ipcBucketCmd.AddCommand(ipcBucketCreateCmd)
-	ipcBucketCmd.AddCommand(ipcBucketViewCmd)
-	ipcBucketCmd.AddCommand(ipcBucketListCmd)
-	ipcBucketCmd.AddCommand(ipcBucketDeleteCmd)
-	ipcFileCmd.AddCommand(ipcFileUploadCmd)
-	ipcFileCmd.AddCommand(ipcFileDownloadCmd)
-	ipcFileCmd.AddCommand(ipcFileListCmd)
-	ipcFileCmd.AddCommand(ipcFileInfoCmd)
-	ipcFileCmd.AddCommand(ipcFileDeleteCmd)
+	// Initialize file and buckets commands
+	initStorageCommands()
 
 	// Initialize wallet commands
 	initWalletCommands()
+}
 
-	rootCmd.AddCommand(versionCmd)
-	rootCmd.AddCommand(bucketCmd)
-	rootCmd.AddCommand(fileStreamingCmd)
-	rootCmd.AddCommand(ipcCmd)
-	rootCmd.AddCommand(walletCmd)
+func main() {
+	if err := run(); err != nil {
+		os.Exit(1)
+	}
 }
 
 func initFlags() {
@@ -188,16 +105,18 @@ func initFlags() {
 	rootCmd.PersistentFlags().Int64Var(&blockPartSize, "blockPartSize", (memory.KiB * 128).ToInt64(), "Size of each block part")
 	rootCmd.PersistentFlags().BoolVar(&useConnectionPool, "useConnectionPool", true, "Use connection pool")
 	rootCmd.PersistentFlags().BoolVar(&enableSDKMonkitStats, "print-stats", false, "Enable printing SDK monkit stats on shutdown")
-	ipcCmd.PersistentFlags().StringVar(&accountName, "account", "", "Optional: Wallet name to use for IPC operations. If not provided, will use the first available wallet")
-	ipcCmd.PersistentFlags().StringVar(&privateKey, "private-key", "", "Private key for signing IPC transactions")
-	streamingFileDownloadCmd.Flags().BoolVar(&filecoinFlag, "filecoin", false, "downloads data from filecoin if they are already sealed there")
-	ipcBucketListCmd.Flags().Int64Var(&bucketListOffset, "offset", 0, "offset for bucket list pagination")
-	ipcBucketListCmd.Flags().Int64Var(&bucketListLimit, "limit", 20, "limit for bucket list pagination")
-	ipcFileListCmd.Flags().Int64Var(&fileListOffset, "offset", 0, "offset for file list pagination")
-	ipcFileListCmd.Flags().Int64Var(&fileListLimit, "limit", 20, "limit for file list pagination")
+	rootCmd.PersistentFlags().StringVar(&accountName, "account", "", "Optional: Wallet name to use. If not provided, will use the first available wallet")
+	rootCmd.PersistentFlags().StringVar(&privateKey, "private-key", "", "Private key for signing transactions")
+	rootCmd.PersistentFlags().StringVarP(&encryptionKey, "encryption-key", "e", "", "Encryption key for encrypting file data")
+	rootCmd.PersistentFlags().BoolVar(&useMetadataEncryption, "metadata-encryption", false, "enable metadata encryption")
+	bucketListCmd.Flags().Int64Var(&bucketListOffset, "offset", 0, "offset for bucket list pagination")
+	bucketListCmd.Flags().Int64Var(&bucketListLimit, "limit", 20, "limit for bucket list pagination")
+	fileListCmd.Flags().Int64Var(&fileListOffset, "offset", 0, "offset for file list pagination")
+	fileListCmd.Flags().Int64Var(&fileListLimit, "limit", 20, "limit for file list pagination")
+	fileDownloadCmd.Flags().BoolVar(&archivalDownload, "archival", false, "download from archival storage")
+	archivalMetadataCmd.Flags().BoolVarP(&archivalMetadataVerbose, "verbose", "v", false, "Print detailed metadata including chunks and blocks")
 
-	for _, cmd := range []*cobra.Command{ipcFileUploadCmd, ipcFileDownloadCmd, streamingFileUploadCmd, streamingFileDownloadCmd} {
-		cmd.Flags().StringVarP(&encryptionKey, "encryption-key", "e", "", "Encryption key for encrypting file data")
+	for _, cmd := range []*cobra.Command{fileUploadCmd, fileDownloadCmd} {
 		cmd.Flags().BoolVar(&disableErasureCoding, "disable-erasure-coding", false, "Do not use erasure coding")
 	}
 }
@@ -214,7 +133,7 @@ func initTracing(log *zap.Logger) (*mJaeger.ThriftCollector, func()) {
 	return collector, unreg
 }
 
-func main() {
+func run() error {
 	initFlags()
 	environment.Register(monkit.Default)
 	log.SetOutput(os.Stderr)
@@ -224,7 +143,8 @@ func main() {
 
 	logger, err := zap.NewProduction()
 	if err != nil {
-		log.Fatal(err)
+		rootCmd.PrintErrf("failed to create logger: %v\n", err)
+		return err
 	}
 	defer func() { _ = logger.Sync() }()
 
@@ -252,7 +172,7 @@ func main() {
 	if err != nil {
 		rootCmd.PrintErrf("Error: %v\n", err)
 		_ = rootCmd.Usage()
-		return
+		return err
 	}
 
 	rootCmd.DisableFlagParsing = false
@@ -261,7 +181,7 @@ func main() {
 	if err != nil {
 		rootCmd.PrintErrf("Error: failed to parse flags: %v\n", err)
 		_ = cmd.Usage()
-		return
+		return err
 	}
 
 	if err = rootCmd.Execute(); err != nil {
@@ -271,124 +191,15 @@ func main() {
 		if errors.As(err, &paramErr) {
 			_ = cmd.Usage()
 		}
+
+		return err
 	}
 
 	if enableSDKMonkitStats {
 		printMonkitStats(sdk.GetMonkitStats(), os.Stderr)
 	}
-}
-
-func cmdCreateBucket(cmd *cobra.Command, args []string) (err error) {
-	ctx := cmd.Context()
-	defer mon.Task()(&ctx, args)(&err)
-	bucketName := args[0]
-
-	sdk, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if cerr := sdk.Close(); cerr != nil {
-			cmd.PrintErrf("failed to close SDK: %v", cerr)
-		}
-	}()
-
-	result, err := sdk.CreateBucket(ctx, bucketName)
-	if err != nil {
-		return fmt.Errorf("failed to create bucket: %w", err)
-	}
-
-	cmd.PrintErrf("Bucket created: ID=%s, CreatedAt=%s\n", result.Name, result.CreatedAt)
 
 	return nil
-}
-
-func cmdDeleteBucket(cmd *cobra.Command, args []string) (err error) {
-	ctx := cmd.Context()
-	defer mon.Task()(&ctx, args)(&err)
-	bucketName := args[0]
-
-	sdk, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if cerr := sdk.Close(); cerr != nil {
-			cmd.PrintErrf("failed to close SDK: %v", cerr)
-		}
-	}()
-
-	err = sdk.DeleteBucket(ctx, bucketName)
-	if err != nil {
-		return fmt.Errorf("failed to delete bucket: %w", err)
-	}
-
-	cmd.PrintErrf("Bucket deleted: Name=%s\n", bucketName)
-
-	return nil
-}
-
-func cmdViewBucket(cmd *cobra.Command, args []string) (err error) {
-	ctx := cmd.Context()
-	defer mon.Task()(&ctx, args)(&err)
-	bucketName := args[0]
-
-	sdk, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if cerr := sdk.Close(); cerr != nil {
-			cmd.PrintErrf("failed to close SDK: %v", cerr)
-		}
-	}()
-
-	result, err := sdk.ViewBucket(ctx, bucketName)
-	if err != nil {
-		return fmt.Errorf("failed to get bucket: %w", err)
-	}
-
-	cmd.PrintErrf("Bucket: Name=%s, CreatedAt=%s\n", result.Name, result.CreatedAt)
-
-	return nil
-}
-
-func cmdListBuckets(cmd *cobra.Command, args []string) (err error) {
-	ctx := cmd.Context()
-	defer mon.Task()(&ctx, args)(&err)
-
-	sdk, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if cerr := sdk.Close(); cerr != nil {
-			cmd.PrintErrf("failed to close SDK: %v", cerr)
-		}
-	}()
-
-	buckets, err := sdk.ListBuckets(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to list buckets: %w", err)
-	}
-
-	if len(buckets) == 0 {
-		cmd.PrintErrln("No buckets")
-		return nil
-	}
-	for _, bucket := range buckets {
-		cmd.PrintErrf("Bucket: Name=%s, CreatedAt=%s\n", bucket.Name, bucket.CreatedAt)
-	}
-
-	return nil
-}
-
-func encryptionKeyBytes() ([]byte, error) {
-	decodedKey, err := hex.DecodeString(encryptionKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode encryption key: %w", err)
-	}
-	return decodedKey, nil
 }
 
 func parityBlocks() int {

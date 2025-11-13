@@ -9,10 +9,16 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/signer/core/apitypes"
+	"github.com/ipfs/go-cid"
 
 	"github.com/akave-ai/akavesdk/private/eip712"
 )
+
+// cidPrefix is the prefix for a SHA256 32-byte hash CIDv1 in dag-pb format.
+var cidPrefix = []byte{1, 112, 18, 32}
 
 // GenerateNonce generates a random 256 bit nonce.
 func GenerateNonce() (*big.Int, error) {
@@ -46,13 +52,13 @@ func CalculateBucketID(bucketName, address string) []byte {
 
 // SignBlock signs StorageData using EIP712 standard.
 func SignBlock(privateKey *ecdsa.PrivateKey, storageAddress string, chainId *big.Int, data StorageData) ([]byte, error) {
-	domain := eip712.Domain{
+	domain := apitypes.TypedDataDomain{
 		Name:              "Storage",
 		Version:           "1",
-		ChainID:           chainId,
-		VerifyingContract: common.HexToAddress(storageAddress),
+		ChainId:           (*math.HexOrDecimal256)(chainId),
+		VerifyingContract: storageAddress,
 	}
-	storageDataTypes := map[string][]eip712.TypedData{
+	storageDataTypes := apitypes.Types{
 		"StorageData": {
 			{Name: "chunkCID", Type: "bytes"},
 			{Name: "blockCID", Type: "bytes32"},
@@ -76,5 +82,14 @@ func SignBlock(privateKey *ecdsa.PrivateKey, storageAddress string, chainId *big
 		"bucketId":   data.BucketID,
 	}
 
-	return eip712.Sign(privateKey, domain, dataMessage, storageDataTypes)
+	return eip712.Sign(privateKey, domain, "StorageData", storageDataTypes, dataMessage)
+}
+
+// FromByteArrayCID reconstructs original 36byte cid from 32 stored.
+func FromByteArrayCID(data [32]byte) (cid.Cid, error) {
+	var cidBytes []byte
+
+	cidBytes = append(cidBytes, cidPrefix...)
+	cidBytes = append(cidBytes, data[:]...)
+	return cid.Cast(cidBytes)
 }

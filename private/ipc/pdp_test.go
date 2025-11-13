@@ -5,7 +5,6 @@ package ipc_test
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"math/big"
 	"net/http"
@@ -28,9 +27,9 @@ import (
 
 func TestContractPDP(t *testing.T) {
 	var (
-		ctx        = context.Background()
-		dialUri    = PickDialURI(t)
-		privateKey = PickPrivateKey(t)
+		ctx        = t.Context()
+		dialUri    = ipctest.PickDialURI(t)
+		privateKey = ipctest.PickPrivateKey(t)
 	)
 
 	pk := ipctest.NewFundedAccount(t, privateKey, dialUri, ipctest.ToWei(10))
@@ -184,7 +183,7 @@ func fillBlocks(t *testing.T) {
 	body, err := json.Marshal(payload)
 	require.NoError(t, err)
 
-	req, err := http.NewRequestWithContext(context.Background(), "POST", "http://127.0.0.1:8545", bytes.NewBuffer(body))
+	req, err := http.NewRequestWithContext(t.Context(), "POST", "http://127.0.0.1:8545", bytes.NewBuffer(body))
 	require.NoError(t, err)
 
 	req.Header.Set("Content-Type", "application/json")

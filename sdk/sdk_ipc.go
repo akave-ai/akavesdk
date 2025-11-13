@@ -12,6 +12,7 @@ import (
 	"io"
 	"log/slog"
 	"math/big"
+	"net/http"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -23,20 +24,26 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
+	"github.com/akave-ai/akavesdk/private/cids"
 	"github.com/akave-ai/akavesdk/private/encryption"
 	"github.com/akave-ai/akavesdk/private/erasurecode"
+	"github.com/akave-ai/akavesdk/private/httpext"
 	"github.com/akave-ai/akavesdk/private/ipc"
 	"github.com/akave-ai/akavesdk/private/ipc/contracts"
 	"github.com/akave-ai/akavesdk/private/pb"
+	"github.com/akave-ai/akavesdk/private/retry"
 )
 
 // IPC exposes SDK ipc API.
 type IPC struct {
-	client pb.IPCNodeAPIClient
-	conn   *grpc.ClientConn
-	ipc    *ipc.Client
-	ec     *erasurecode.ErasureCode
+	client     pb.IPCNodeAPIClient
+	conn       *grpc.ClientConn
+	ipc        *ipc.Client
+	httpClient *http.Client
+	ec         *erasurecode.ErasureCode
 
 	privateKey            string
 	chainID               *big.Int
@@ -49,8 +56,9 @@ type IPC struct {
 	useMetadataEncryption bool
 	// chunkBuffer controls the size of the buffer for chunk uploads.
 	chunkBuffer int
+	batchSize   int
 
-	withRetry withRetry
+	withRetry retry.WithRetry
 }
 
 // CreateBucket creates a new bucket.
@@ -61,15 +69,15 @@ func (sdk *IPC) CreateBucket(ctx context.Context, name string) (_ *IPCBucketCrea
 		return nil, errSDK.Errorf("invalid bucket name")
 	}
 
-	name, err = sdk.maybeEncryptMetadata(name, name)
+	nameEnc, err := sdk.maybeEncryptMetadata(name, "bucket")
 	if err != nil {
 		return nil, errSDK.Wrap(err)
 	}
 
 	var tx *types.Transaction
 
-	err = sdk.withRetry.do(ctx, func() (bool, error) {
-		tx, err = sdk.ipc.Storage.CreateBucket(sdk.ipc.Auth, name)
+	err = sdk.withRetry.Do(ctx, func() (bool, error) {
+		tx, err = sdk.ipc.Storage.CreateBucket(sdk.ipc.Auth, nameEnc)
 		return isRetryableTxError(err), err
 	})
 	if err != nil {
@@ -82,7 +90,7 @@ func (sdk *IPC) CreateBucket(ctx context.Context, name string) (_ *IPCBucketCrea
 
 	bucket, err := sdk.ipc.Storage.GetBucketByName(
 		&bind.CallOpts{Context: ctx, From: sdk.ipc.Auth.From},
-		name,
+		nameEnc,
 		sdk.ipc.Auth.From,
 		big.NewInt(0), big.NewInt(0), // no need to fetch file ids here
 	)
@@ -90,9 +98,14 @@ func (sdk *IPC) CreateBucket(ctx context.Context, name string) (_ *IPCBucketCrea
 		return &IPCBucketCreateResult{}, errSDK.Wrap(ipc.ErrorHashToError(err))
 	}
 
+	bName, err := sdk.maybeDecryptMetadata(bucket.Name, "bucket")
+	if err != nil {
+		return &IPCBucketCreateResult{}, errSDK.Wrap(err)
+	}
+
 	return &IPCBucketCreateResult{
 		ID:        hex.EncodeToString(bucket.Id[:]),
-		Name:      bucket.Name,
+		Name:      bName,
 		CreatedAt: time.Unix(bucket.CreatedAt.Int64(), 0),
 	}, nil
 }
@@ -105,22 +118,27 @@ func (sdk *IPC) ViewBucket(ctx context.Context, bucketName string) (_ IPCBucket,
 		return IPCBucket{}, errSDK.Errorf("empty bucket name")
 	}
 
-	bucketName, err = sdk.maybeEncryptMetadata(bucketName, bucketName)
+	bucketNameEnc, err := sdk.maybeEncryptMetadata(bucketName, "bucket")
 	if err != nil {
 		return IPCBucket{}, errSDK.Wrap(err)
 	}
 
 	res, err := sdk.client.BucketView(ctx, &pb.IPCBucketViewRequest{
-		Name:    bucketName,
+		Name:    bucketNameEnc,
 		Address: sdk.ipc.Auth.From.String(),
 	})
 	if err != nil {
 		return IPCBucket{}, errSDK.Wrap(err)
 	}
 
+	bName, err := sdk.maybeDecryptMetadata(res.GetName(), "bucket")
+	if err != nil {
+		return IPCBucket{}, errSDK.Wrap(err)
+	}
+
 	return IPCBucket{
 		ID:        res.GetId(),
-		Name:      res.GetName(),
+		Name:      bName,
 		CreatedAt: res.GetCreatedAt().AsTime(),
 	}, nil
 }
@@ -140,8 +158,14 @@ func (sdk *IPC) ListBuckets(ctx context.Context, offset, limit int64) (_ []IPCBu
 
 	buckets := make([]IPCBucket, 0, len(res.Buckets))
 	for _, bucket := range res.Buckets {
+		var bName string
+		bName, err = sdk.maybeDecryptMetadata(bucket.Name, "bucket")
+		if err != nil {
+			bName = bucket.Name
+		}
+
 		buckets = append(buckets, IPCBucket{
-			Name:      bucket.GetName(),
+			Name:      bName,
 			CreatedAt: bucket.GetCreatedAt().AsTime(),
 		})
 	}
@@ -153,13 +177,13 @@ func (sdk *IPC) ListBuckets(ctx context.Context, offset, limit int64) (_ []IPCBu
 func (sdk *IPC) DeleteBucket(ctx context.Context, name string) (err error) {
 	defer mon.Task()(&ctx)(&err)
 
-	name, err = sdk.maybeEncryptMetadata(name, name)
+	nameEnc, err := sdk.maybeEncryptMetadata(name, "bucket")
 	if err != nil {
 		return errSDK.Wrap(err)
 	}
 
 	bucket, err := sdk.client.BucketView(ctx, &pb.IPCBucketViewRequest{
-		Name:    name,
+		Name:    nameEnc,
 		Address: sdk.ipc.Auth.From.String(),
 	})
 	if err != nil {
@@ -180,7 +204,7 @@ func (sdk *IPC) DeleteBucket(ctx context.Context, name string) (err error) {
 		return errSDK.Wrap(ipc.ErrorHashToError(err))
 	}
 	if !bucketIdx.Exists {
-		return errSDK.Errorf("bucket does not exist: %s", name)
+		return errSDK.Errorf("bucket does not exist: %s", nameEnc)
 	}
 
 	tx, err := sdk.ipc.Storage.DeleteBucket(sdk.ipc.Auth, bucketID, bucket.Name, bucketIdx.Index)
@@ -197,28 +221,37 @@ func (sdk *IPC) FileInfo(ctx context.Context, bucketName, fileName string) (_ IP
 		return IPCFileMeta{}, errSDK.Errorf("empty bucket name")
 	}
 
-	fileName, err = sdk.maybeEncryptMetadata(fileName, bucketName+"/"+fileName)
+	bucketNameEnc, err := sdk.maybeEncryptMetadata(bucketName, "bucket")
 	if err != nil {
 		return IPCFileMeta{}, errSDK.Wrap(err)
 	}
-	bucketName, err = sdk.maybeEncryptMetadata(bucketName, bucketName)
+	fileNameEnc, err := sdk.maybeEncryptMetadata(fileName, bucketName)
 	if err != nil {
 		return IPCFileMeta{}, errSDK.Wrap(err)
 	}
 
 	res, err := sdk.client.FileView(ctx, &pb.IPCFileViewRequest{
-		FileName:   fileName,
-		BucketName: bucketName,
+		FileName:   fileNameEnc,
+		BucketName: bucketNameEnc,
 		Address:    sdk.ipc.Auth.From.String(),
 	})
 	if err != nil {
 		return IPCFileMeta{}, errSDK.Wrap(err)
 	}
 
+	bName, err := sdk.maybeDecryptMetadata(res.GetBucketName(), "bucket")
+	if err != nil {
+		return IPCFileMeta{}, errSDK.Wrap(err)
+	}
+	fName, err := sdk.maybeDecryptMetadata(res.GetFileName(), bName)
+	if err != nil {
+		return IPCFileMeta{}, errSDK.Wrap(err)
+	}
+
 	return IPCFileMeta{
 		RootCID:     res.GetRootCid(),
-		Name:        res.GetFileName(),
-		BucketName:  res.GetBucketName(),
+		Name:        fName,
+		BucketName:  bName,
 		IsPublic:    res.GetIsPublic(),
 		EncodedSize: res.GetEncodedSize(),
 		ActualSize:  res.GetActualSize(),
@@ -234,13 +267,13 @@ func (sdk *IPC) ListFiles(ctx context.Context, bucketName string, offset, limit 
 		return nil, errSDK.Errorf("empty bucket name")
 	}
 
-	bucketName, err = sdk.maybeEncryptMetadata(bucketName, bucketName)
+	bucketNameEnc, err := sdk.maybeEncryptMetadata(bucketName, "bucket")
 	if err != nil {
 		return []IPCFileListItem{}, errSDK.Wrap(err)
 	}
 
 	resp, err := sdk.client.FileList(ctx, &pb.IPCFileListRequest{
-		BucketName: bucketName,
+		BucketName: bucketNameEnc,
 		Address:    sdk.ipc.Auth.From.String(),
 		Offset:     offset,
 		Limit:      limit,
@@ -251,9 +284,14 @@ func (sdk *IPC) ListFiles(ctx context.Context, bucketName string, offset, limit 
 
 	files := make([]IPCFileListItem, 0, len(resp.List))
 	for _, fileMeta := range resp.List {
+		fName, err := sdk.maybeDecryptMetadata(fileMeta.Name, bucketName)
+		if err != nil {
+			return nil, errSDK.Wrap(fmt.Errorf("failed to decrypt metadata: %w", err))
+		}
+
 		files = append(files, IPCFileListItem{
 			RootCID:     fileMeta.GetRootCid(),
-			Name:        fileMeta.GetName(),
+			Name:        fName,
 			EncodedSize: fileMeta.GetEncodedSize(),
 			ActualSize:  fileMeta.GetActualSize(),
 			CreatedAt:   fileMeta.GetCreatedAt().AsTime(),
@@ -271,18 +309,18 @@ func (sdk *IPC) FileDelete(ctx context.Context, bucketName, fileName string) (er
 		return errSDK.Errorf("empty bucket or file name. Bucket: '%s', File: '%s'", bucketName, fileName)
 	}
 
-	fileName, err = sdk.maybeEncryptMetadata(fileName, bucketName+"/"+fileName)
+	bucketNameEnc, err := sdk.maybeEncryptMetadata(bucketName, "bucket")
 	if err != nil {
 		return errSDK.Wrap(err)
 	}
-	bucketName, err = sdk.maybeEncryptMetadata(bucketName, bucketName)
+	fileNameEnc, err := sdk.maybeEncryptMetadata(fileName, bucketName)
 	if err != nil {
 		return errSDK.Wrap(err)
 	}
 
 	bucket, err := sdk.ipc.Storage.GetBucketByName(
 		&bind.CallOpts{Context: ctx, From: sdk.ipc.Auth.From},
-		bucketName,
+		bucketNameEnc,
 		sdk.ipc.Auth.From,
 		big.NewInt(0), big.NewInt(0), // no need to fetch file ids here
 	)
@@ -290,7 +328,7 @@ func (sdk *IPC) FileDelete(ctx context.Context, bucketName, fileName string) (er
 		return errSDK.Wrap(ipc.ErrorHashToError(err))
 	}
 
-	file, err := sdk.ipc.Storage.GetFileByName(&bind.CallOpts{Context: ctx}, bucket.Id, fileName)
+	file, err := sdk.ipc.Storage.GetFileByName(&bind.CallOpts{Context: ctx}, bucket.Id, fileNameEnc)
 	if err != nil {
 		return errSDK.Wrap(ipc.ErrorHashToError(err))
 	}
@@ -300,10 +338,10 @@ func (sdk *IPC) FileDelete(ctx context.Context, bucketName, fileName string) (er
 		return errSDK.Wrap(ipc.ErrorHashToError(err))
 	}
 	if !fileIdx.Exists {
-		return errSDK.Errorf("file index not exists: %s", fileName)
+		return errSDK.Errorf("file index not exists: %s", fileNameEnc)
 	}
 
-	tx, err := sdk.ipc.Storage.DeleteFile(sdk.ipc.Auth, file.Id, bucket.Id, fileName, fileIdx.Index)
+	tx, err := sdk.ipc.Storage.DeleteFile(sdk.ipc.Auth, file.Id, bucket.Id, fileNameEnc, fileIdx.Index)
 	if err != nil {
 		return errSDK.Wrap(ipc.ErrorHashToError(err))
 	}
@@ -319,27 +357,27 @@ func (sdk *IPC) CreateFileUpload(ctx context.Context, bucketName, fileName strin
 		return nil, errSDK.Errorf("empty bucket name")
 	}
 
-	fileName, err = sdk.maybeEncryptMetadata(fileName, bucketName+"/"+fileName)
+	fileNameEnc, err := sdk.maybeEncryptMetadata(fileName, bucketName)
 	if err != nil {
 		return nil, errSDK.Wrap(err)
 	}
-	bucketName, err = sdk.maybeEncryptMetadata(bucketName, bucketName)
+	bucketNameEnc, err := sdk.maybeEncryptMetadata(bucketName, "bucket")
 	if err != nil {
 		return nil, errSDK.Wrap(err)
 	}
 
 	// create fileUpload template before interacting with the blockchain
-	fileUpload, err := NewIPCFileUpload(bucketName, fileName)
+	fileUpload, err := NewIPCFileUpload(bucketNameEnc, fileNameEnc)
 	if err != nil {
 		return nil, errSDK.Wrap(err)
 	}
 
 	var bucket contracts.IStorageBucket
 
-	err = sdk.withRetry.do(ctx, func() (bool, error) {
+	err = sdk.withRetry.Do(ctx, func() (bool, error) {
 		bucket, err = sdk.ipc.Storage.GetBucketByName(
 			&bind.CallOpts{Context: ctx, From: sdk.ipc.Auth.From},
-			bucketName,
+			bucketNameEnc,
 			sdk.ipc.Auth.From,
 			big.NewInt(0), big.NewInt(0), // no need to fetch file ids here
 		)
@@ -351,8 +389,8 @@ func (sdk *IPC) CreateFileUpload(ctx context.Context, bucketName, fileName strin
 
 	var tx *types.Transaction
 
-	err = sdk.withRetry.do(ctx, func() (bool, error) {
-		tx, err = sdk.ipc.Storage.CreateFile(sdk.ipc.Auth, bucket.Id, fileName)
+	err = sdk.withRetry.Do(ctx, func() (bool, error) {
+		tx, err = sdk.ipc.Storage.CreateFile(sdk.ipc.Auth, bucket.Id, fileNameEnc)
 		return isRetryableTxError(err), err
 	})
 	if err != nil {
@@ -362,10 +400,17 @@ func (sdk *IPC) CreateFileUpload(ctx context.Context, bucketName, fileName strin
 	return fileUpload, errSDK.Wrap(sdk.ipc.WaitForTx(ctx, tx.Hash()))
 }
 
-// TxWaitSignal contains data for transaction wait pipe required.
-type TxWaitSignal struct {
-	FileUploadChunk IPCFileChunkUploadV2
-	Transaction     *types.Transaction
+// ChunkData contains chunk data with CIDs and sizes for batching.
+type ChunkData struct {
+	ChunkUpload IPCFileChunkUploadV2
+	CIDs        [][32]byte
+	Sizes       []*big.Int
+}
+
+// BatchTransaction contains transaction with associated chunks.
+type BatchTransaction struct {
+	Chunks []IPCFileChunkUploadV2
+	Tx     *types.Transaction
 }
 
 // Upload uploads a file using ipc api.
@@ -390,21 +435,11 @@ func (sdk *IPC) Upload(ctx context.Context, fileUpload *IPCFileUpload, reader io
 		isContinuation = true
 	}
 
-	fileName, err := sdk.maybeEncryptMetadata(fileUpload.Name, fileUpload.BucketName+"/"+fileUpload.Name)
-	if err != nil {
-		return IPCFileMetaV2{}, errSDK.Wrap(err)
-	}
-	bucketName, err := sdk.maybeEncryptMetadata(fileUpload.BucketName, fileUpload.Name)
-	if err != nil {
-		return IPCFileMetaV2{}, errSDK.Wrap(err)
-	}
-
 	var bucket contracts.IStorageBucket
-
-	err = sdk.withRetry.do(ctx, func() (bool, error) {
+	err = sdk.withRetry.Do(ctx, func() (bool, error) {
 		bucket, err = sdk.ipc.Storage.GetBucketByName(
 			&bind.CallOpts{Context: ctx, From: sdk.ipc.Auth.From},
-			bucketName,
+			fileUpload.BucketName,
 			sdk.ipc.Auth.From,
 			big.NewInt(0), big.NewInt(0), // no need to fetch file ids here
 		)
@@ -415,7 +450,7 @@ func (sdk *IPC) Upload(ctx context.Context, fileUpload *IPCFileUpload, reader io
 	}
 
 	chunkEncOverhead := 0
-	fileEncKey, err := encryptionKey(sdk.encryptionKey, bucketName, fileName)
+	fileEncKey, err := encryptionKey(sdk.encryptionKey, fileUpload.BucketName, fileUpload.Name)
 	if err != nil {
 		return IPCFileMetaV2{}, errSDK.Wrap(err)
 	}
@@ -431,7 +466,7 @@ func (sdk *IPC) Upload(ctx context.Context, fileUpload *IPCFileUpload, reader io
 
 	g, chunkCtx := errgroup.WithContext(ctx)
 	fileUploadChunksCh := make(chan IPCFileChunkUploadV2)
-	waitTransactionsCh := make(chan TxWaitSignal, sdk.chunkBuffer)
+	waitTransactionsCh := make(chan BatchTransaction, sdk.chunkBuffer)
 
 	pool := newConnectionPool()
 	defer func() {
@@ -446,80 +481,107 @@ func (sdk *IPC) Upload(ctx context.Context, fileUpload *IPCFileUpload, reader io
 
 		buf := make([]byte, bufferSize)
 
+		chunkIndex := int64(0)
 		if isContinuation {
 			if err := skipToPosition(reader, fileUpload.state.actualFileSize); err != nil {
 				return err
 			}
+			chunkIndex = fileUpload.state.chunkCount
 		}
 
-		opts := *sdk.ipc.Auth
-		opts.GasLimit = 250000
-
 		for {
-			n, readErr := io.ReadFull(reader, buf)
-			if readErr != nil {
-				if errors.Is(readErr, io.EOF) {
-					if fileUpload.state.chunkCount == 0 {
-						return fmt.Errorf("empty file")
+			var batch []ChunkData
+			var readErr error
+
+			for range sdk.batchSize {
+				var n int
+				n, readErr = io.ReadFull(reader, buf)
+
+				if readErr != nil {
+					switch {
+					case errors.Is(readErr, io.EOF):
+						if chunkIndex == 0 {
+							return fmt.Errorf("empty file")
+						}
+					case errors.Is(readErr, io.ErrUnexpectedEOF):
+						// do nothing.
+					default:
+						return readErr
 					}
-					return nil
 				}
-				if !errors.Is(readErr, io.ErrUnexpectedEOF) {
-					return readErr
+
+				if n > 0 {
+					chunkData := make([]byte, n)
+					copy(chunkData, buf[:n])
+
+					chunkUpload, err := sdk.createChunkUpload(
+						chunkCtx,
+						chunkIndex,
+						fileEncKey,
+						chunkData,
+						bucket.Id,
+						fileUpload.Name,
+					)
+					if err != nil {
+						return err
+					}
+
+					cids, sizes, _, err := toIPCProtoChunk(
+						chunkUpload.ChunkCID.String(),
+						chunkUpload.Index,
+						chunkUpload.ActualSize,
+						chunkUpload.Blocks,
+					)
+					if err != nil {
+						return err
+					}
+
+					batch = append(batch, ChunkData{
+						ChunkUpload: chunkUpload,
+						CIDs:        cids,
+						Sizes:       sizes,
+					})
+					chunkIndex++
+				}
+
+				if errors.Is(readErr, io.ErrUnexpectedEOF) || errors.Is(readErr, io.EOF) {
+					break
 				}
 			}
 
-			if n > 0 {
-				chunkUpload, err := sdk.createChunkUpload(chunkCtx, fileUpload.state.chunkCount, fileEncKey, buf[:n], bucket.Id, fileName)
+			if len(batch) > 0 {
+				tx, err := sdk.createBatchedChunkTransaction(chunkCtx, batch, bucket.Id, fileUpload.Name)
 				if err != nil {
 					return err
 				}
 
-				cids, sizes, _, err := toIPCProtoChunk(chunkUpload.ChunkCID.String(), chunkUpload.Index, chunkUpload.ActualSize, chunkUpload.Blocks)
-				if err != nil {
-					return err
+				for _, chunkData := range batch {
+					if err := fileUpload.state.preCreateChunk(chunkData.ChunkUpload, tx); err != nil {
+						return err
+					}
 				}
 
-				var tx *types.Transaction
-
-				err = sdk.withRetry.do(ctx, func() (bool, error) {
-					tx, err = sdk.ipc.Storage.AddFileChunk(
-						&opts,
-						chunkUpload.ChunkCID.Bytes(),
-						bucket.Id, fileName,
-						big.NewInt(int64(chunkUpload.EncodedSize)),
-						cids, sizes,
-						big.NewInt(chunkUpload.Index))
-
-					return isRetryableTxError(err), err
-				})
-				if err != nil {
-					return err
-				}
-
-				if err = fileUpload.state.preCreateChunk(chunkUpload, tx); err != nil {
-					return err
+				chunks := make([]IPCFileChunkUploadV2, len(batch))
+				for i, chunkData := range batch {
+					chunks[i] = chunkData.ChunkUpload
 				}
 
 				select {
 				case <-chunkCtx.Done():
 					return chunkCtx.Err()
-				case waitTransactionsCh <- TxWaitSignal{FileUploadChunk: chunkUpload, Transaction: tx}:
+				case waitTransactionsCh <- BatchTransaction{Chunks: chunks, Tx: tx}:
 				}
 			}
 
-			// If this was the last chunk (ErrUnexpectedEOF), we're done
-			if errors.Is(readErr, io.ErrUnexpectedEOF) {
+			if errors.Is(readErr, io.ErrUnexpectedEOF) || errors.Is(readErr, io.EOF) {
 				return nil
 			}
 		}
 	})
 
-	// Start goroutine for waiting for transactions and sending chunks to upload
 	g.Go(func() error {
 		defer close(fileUploadChunksCh)
 
-		// If the upload is resumable, we need to process pre-created chunks first if they do exist.
 		if isContinuation {
 			for _, chunkWithTx := range fileUpload.state.listPreCreatedChunks() {
 				if err := sdk.ipc.WaitForTx(chunkCtx, chunkWithTx.tx.Hash()); err != nil {
@@ -539,19 +601,21 @@ func (sdk *IPC) Upload(ctx context.Context, fileUpload *IPCFileUpload, reader io
 			select {
 			case <-chunkCtx.Done():
 				return chunkCtx.Err()
-			case txHash, ok := <-waitTransactionsCh:
+			case batchResult, ok := <-waitTransactionsCh:
 				if !ok {
 					return nil
 				}
 
-				if err := sdk.ipc.WaitForTx(chunkCtx, txHash.Transaction.Hash()); err != nil {
+				if err := sdk.ipc.WaitForTx(chunkCtx, batchResult.Tx.Hash()); err != nil {
 					return err
 				}
 
-				select {
-				case <-chunkCtx.Done():
-					return chunkCtx.Err()
-				case fileUploadChunksCh <- txHash.FileUploadChunk:
+				for _, chunk := range batchResult.Chunks {
+					select {
+					case <-chunkCtx.Done():
+						return chunkCtx.Err()
+					case fileUploadChunksCh <- chunk:
+					}
 				}
 			}
 		}
@@ -589,19 +653,22 @@ func (sdk *IPC) Upload(ctx context.Context, fileUpload *IPCFileUpload, reader io
 
 	var fileMeta contracts.IStorageFile
 
-	err = sdk.withRetry.do(ctx, func() (bool, error) {
-		fileMeta, err = sdk.ipc.Storage.GetFileByName(&bind.CallOpts{Context: ctx, From: sdk.ipc.Auth.From}, bucket.Id, fileName)
+	err = sdk.withRetry.Do(ctx, func() (bool, error) {
+		fileMeta, err = sdk.ipc.Storage.GetFileByName(
+			&bind.CallOpts{Context: ctx, From: sdk.ipc.Auth.From},
+			bucket.Id,
+			fileUpload.Name,
+		)
 		return true, err
 	})
 	if err != nil {
 		return IPCFileMetaV2{}, errSDK.Wrap(ipc.ErrorHashToError(err))
 	}
 
-	fileID := ipc.CalculateFileID(bucket.Id[:], fileName)
-
+	fileID := ipc.CalculateFileID(bucket.Id[:], fileUpload.Name)
 	var isFilled bool
 	for !isFilled {
-		err = sdk.withRetry.do(ctx, func() (bool, error) {
+		err = sdk.withRetry.Do(ctx, func() (bool, error) {
 			isFilled, err = sdk.ipc.Storage.IsFileFilled(&bind.CallOpts{Context: ctx}, fileID)
 			return true, err
 		})
@@ -613,16 +680,15 @@ func (sdk *IPC) Upload(ctx context.Context, fileUpload *IPCFileUpload, reader io
 	}
 
 	var tx *types.Transaction
-
-	err = sdk.withRetry.do(ctx, func() (bool, error) {
+	err = sdk.withRetry.Do(ctx, func() (bool, error) {
 		tx, err = sdk.ipc.Storage.CommitFile(
 			sdk.ipc.Auth,
 			bucket.Id,
-			fileName,
+			fileUpload.Name,
 			big.NewInt(fileUpload.state.encodedFileSize),
 			big.NewInt(fileUpload.state.actualFileSize),
-			rootCID.Bytes())
-
+			rootCID.Bytes(),
+		)
 		return isRetryableTxError(err), err
 	})
 	if err != nil {
@@ -633,13 +699,65 @@ func (sdk *IPC) Upload(ctx context.Context, fileUpload *IPCFileUpload, reader io
 
 	return IPCFileMetaV2{
 		RootCID:     rootCID.String(),
-		BucketName:  bucketName,
-		Name:        fileName,
+		BucketName:  fileUpload.BucketName,
+		Name:        fileUpload.Name,
 		Size:        fileUpload.state.actualFileSize,
 		EncodedSize: fileUpload.state.encodedFileSize,
 		CreatedAt:   time.Unix(fileMeta.CreatedAt.Int64(), 0),
 		CommittedAt: time.Now(), // TODO: is it ok to rely on time zone settings of the client?
 	}, errSDK.Wrap(sdk.ipc.WaitForTx(ctx, tx.Hash()))
+}
+
+// createBatchedChunkTransaction creates AddFileChunks batched transaction from chunk data and sends it.
+func (sdk *IPC) createBatchedChunkTransaction(ctx context.Context, batch []ChunkData, bucketID [32]byte, fileName string) (*types.Transaction, error) {
+	if len(batch) == 0 {
+		return nil, fmt.Errorf("empty batch")
+	}
+
+	opts := *sdk.ipc.Auth
+
+	perChunkGas := uint64(270000)
+	opts.GasLimit = uint64(len(batch)) * perChunkGas
+	opts.GasTipCap = big.NewInt(5e9)
+	opts.GasFeeCap = big.NewInt(150e9)
+
+	var (
+		cids              = make([][]byte, 0)
+		encodedChunkSizes = make([]*big.Int, 0)
+		chunkBlocksCIDs   = make([][][32]byte, 0)
+		chunkBlockSizes   = make([][]*big.Int, 0)
+	)
+
+	startingChunkIndex := batch[0].ChunkUpload.Index
+
+	for _, batchedData := range batch {
+		cids = append(cids, batchedData.ChunkUpload.ChunkCID.Bytes())
+		encodedChunkSizes = append(encodedChunkSizes, big.NewInt(int64(batchedData.ChunkUpload.EncodedSize)))
+		chunkBlocksCIDs = append(chunkBlocksCIDs, batchedData.CIDs)
+		chunkBlockSizes = append(chunkBlockSizes, batchedData.Sizes)
+	}
+
+	var tx *types.Transaction
+	var err error
+
+	err = sdk.withRetry.Do(ctx, func() (bool, error) {
+		tx, err = sdk.ipc.Storage.AddFileChunks(
+			&opts,
+			cids,
+			bucketID,
+			fileName,
+			encodedChunkSizes,
+			chunkBlocksCIDs,
+			chunkBlockSizes,
+			big.NewInt(startingChunkIndex),
+		)
+		return isRetryableTxError(err), err
+	})
+	if err != nil {
+		return nil, errSDK.Wrap(ipc.ErrorHashToError(err))
+	}
+
+	return tx, nil
 }
 
 func (sdk *IPC) createChunkUpload(ctx context.Context, index int64, fileEncryptionKey, data []byte, bucketID [32]byte, fileName string) (_ IPCFileChunkUploadV2, err error) {
@@ -663,7 +781,7 @@ func (sdk *IPC) createChunkUpload(ctx context.Context, index int64, fileEncrypti
 		blockSize = int64(len(data) / (sdk.ec.DataBlocks + sdk.ec.ParityBlocks))
 	}
 
-	chunkDAG, err := BuildDAG(ctx, bytes.NewBuffer(data), blockSize, nil)
+	chunkDAG, err := BuildDAG(ctx, bytes.NewBuffer(data), blockSize)
 	if err != nil {
 		return IPCFileChunkUploadV2{}, errSDK.Wrap(err)
 	}
@@ -807,7 +925,7 @@ func (sdk *IPC) uploadChunk(ctx context.Context, fileChunkUpload IPCFileChunkUpl
 				ChunkCID:   chunkCid.Bytes(),
 				BlockCID:   bcid,
 				ChunkIndex: big.NewInt(fileChunkUpload.Index),
-				BlockIndex: uint8(i),
+				BlockIndex: big.NewInt(int64(i)),
 				NodeID:     id32,
 				Nonce:      nonce,
 				Deadline:   big.NewInt(deadline),
@@ -902,18 +1020,18 @@ func (sdk *IPC) CreateFileDownload(ctx context.Context, bucketName, fileName str
 		return IPCFileDownload{}, errSDK.Errorf("empty file name")
 	}
 
-	fileName, err := sdk.maybeEncryptMetadata(fileName, bucketName+"/"+fileName)
+	bucketNameEnc, err := sdk.maybeEncryptMetadata(bucketName, "bucket")
 	if err != nil {
 		return IPCFileDownload{}, errSDK.Wrap(err)
 	}
-	bucketName, err = sdk.maybeEncryptMetadata(bucketName, bucketName)
+	fileNameEnc, err := sdk.maybeEncryptMetadata(fileName, bucketName)
 	if err != nil {
 		return IPCFileDownload{}, errSDK.Wrap(err)
 	}
 
 	res, err := sdk.client.FileDownloadCreate(ctx, &pb.IPCFileDownloadCreateRequest{
-		BucketName: bucketName,
-		FileName:   fileName,
+		BucketName: bucketNameEnc,
+		FileName:   fileNameEnc,
 		Address:    sdk.ipc.Auth.From.String(),
 	})
 	if err != nil {
@@ -932,7 +1050,7 @@ func (sdk *IPC) CreateFileDownload(ctx context.Context, bucketName, fileName str
 
 	return IPCFileDownload{
 		BucketName:   res.BucketName,
-		Name:         fileName,
+		Name:         fileNameEnc,
 		Chunks:       chunks,
 		dataCounters: newDataCounters(),
 	}, nil
@@ -949,18 +1067,18 @@ func (sdk *IPC) CreateRangeFileDownload(ctx context.Context, bucketName, fileNam
 		return IPCFileDownload{}, errSDK.Errorf("empty file name")
 	}
 
-	fileName, err = sdk.maybeEncryptMetadata(fileName, bucketName+"/"+fileName)
+	bucketNameEnc, err := sdk.maybeEncryptMetadata(bucketName, "bucket")
 	if err != nil {
 		return IPCFileDownload{}, errSDK.Wrap(err)
 	}
-	bucketName, err = sdk.maybeEncryptMetadata(bucketName, bucketName)
+	fileNameEnc, err := sdk.maybeEncryptMetadata(fileName, bucketName)
 	if err != nil {
 		return IPCFileDownload{}, errSDK.Wrap(err)
 	}
 
 	res, err := sdk.client.FileDownloadRangeCreate(ctx, &pb.IPCFileDownloadRangeCreateRequest{
-		BucketName: bucketName,
-		FileName:   fileName,
+		BucketName: bucketNameEnc,
+		FileName:   fileNameEnc,
 		Address:    sdk.ipc.Auth.From.String(),
 		StartIndex: start,
 		EndIndex:   end,
@@ -981,7 +1099,7 @@ func (sdk *IPC) CreateRangeFileDownload(ctx context.Context, bucketName, fileNam
 
 	return IPCFileDownload{
 		BucketName:   res.BucketName,
-		Name:         fileName,
+		Name:         fileNameEnc,
 		Chunks:       chunks,
 		dataCounters: newDataCounters(),
 	}, nil
@@ -991,18 +1109,18 @@ func (sdk *IPC) CreateRangeFileDownload(ctx context.Context, bucketName, fileNam
 func (sdk *IPC) FileSetPublicAccess(ctx context.Context, bucketName, fileName string, isPublic bool) (err error) {
 	defer mon.Task()(&ctx, bucketName, fileName)(&err)
 
-	fileName, err = sdk.maybeEncryptMetadata(fileName, bucketName+"/"+fileName)
+	bucketNameEnc, err := sdk.maybeEncryptMetadata(bucketName, "bucket")
 	if err != nil {
 		return errSDK.Wrap(err)
 	}
-	bucketName, err = sdk.maybeEncryptMetadata(bucketName, bucketName)
+	fileNameEnc, err := sdk.maybeEncryptMetadata(fileName, bucketName)
 	if err != nil {
 		return errSDK.Wrap(err)
 	}
 
 	bucket, err := sdk.ipc.Storage.GetBucketByName(
 		&bind.CallOpts{Context: ctx, From: sdk.ipc.Auth.From},
-		bucketName,
+		bucketNameEnc,
 		sdk.ipc.Auth.From,
 		big.NewInt(0), big.NewInt(0), // no need to fetch file ids here
 	)
@@ -1010,7 +1128,7 @@ func (sdk *IPC) FileSetPublicAccess(ctx context.Context, bucketName, fileName st
 		return errSDK.Wrap(ipc.ErrorHashToError(err))
 	}
 
-	file, err := sdk.ipc.Storage.GetFileByName(&bind.CallOpts{Context: ctx}, bucket.Id, fileName)
+	file, err := sdk.ipc.Storage.GetFileByName(&bind.CallOpts{Context: ctx}, bucket.Id, fileNameEnc)
 	if err != nil {
 		return errSDK.Wrap(ipc.ErrorHashToError(err))
 	}
@@ -1032,16 +1150,15 @@ func (sdk *IPC) Download(ctx context.Context, fileDownload IPCFileDownload, writ
 		return errSDK.Wrap(err)
 	}
 
-	chunkDownloadCh := make(chan FileChunkDownload, sdk.chunkBuffer)
-
-	g, ctx := errgroup.WithContext(ctx)
-
 	pool := newConnectionPool()
 	defer func() {
 		if err := pool.close(); err != nil {
 			slog.Warn("failed to close connection", slog.String("error", err.Error()))
 		}
 	}()
+
+	g, ctx := errgroup.WithContext(ctx)
+	chunkDownloadCh := make(chan FileChunkDownload, sdk.chunkBuffer)
 
 	// Start goroutine to create chunk downloads
 	g.Go(func() error {
@@ -1079,7 +1196,7 @@ func (sdk *IPC) Download(ctx context.Context, fileDownload IPCFileDownload, writ
 					return nil
 				}
 
-				if err := sdk.downloadChunkBlocks(
+				err = sdk.downloadChunkBlocks(
 					ctx,
 					pool,
 					fileDownload.BucketName,
@@ -1089,8 +1206,8 @@ func (sdk *IPC) Download(ctx context.Context, fileDownload IPCFileDownload, writ
 					fileEncKey,
 					writer,
 					fileDownload.blocksCounter,
-					fileDownload.bytesCounter,
-				); err != nil {
+					fileDownload.bytesCounter)
+				if err != nil {
 					return err
 				}
 
@@ -1102,6 +1219,197 @@ func (sdk *IPC) Download(ctx context.Context, fileDownload IPCFileDownload, writ
 	return g.Wait()
 }
 
+// DownloadArchival downloads a file from PDP provider.
+func (sdk *IPC) DownloadArchival(ctx context.Context, fileDownload IPCFileDownload, writer io.Writer) (err error) {
+	defer mon.Task()(&ctx, fileDownload)(&err)
+
+	fileEncKey, err := encryptionKey(sdk.encryptionKey, fileDownload.BucketName, fileDownload.Name)
+	if err != nil {
+		return errSDK.Wrap(err)
+	}
+
+	pool := newConnectionPool()
+	defer func() {
+		if err := pool.close(); err != nil {
+			slog.Warn("failed to close connection", slog.String("error", err.Error()))
+		}
+	}()
+
+	g, ctx := errgroup.WithContext(ctx)
+	chunkDownloadCh := make(chan FileChunkDownload, sdk.chunkBuffer)
+
+	// Start goroutine to create chunk downloads
+	g.Go(func() error {
+		defer close(chunkDownloadCh)
+
+		for _, chunk := range fileDownload.Chunks {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+			}
+
+			chunkDownload, err := sdk.createChunkDownload(ctx, fileDownload.BucketName, fileDownload.Name, chunk)
+			if err != nil {
+				return err
+			}
+
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case chunkDownloadCh <- chunkDownload:
+			}
+		}
+		return nil
+	})
+
+	// Start goroutine to process chunk downloads
+	g.Go(func() error {
+		for {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case chunkDownload, ok := <-chunkDownloadCh:
+				if !ok {
+					return nil
+				}
+
+				err = sdk.downloadChunkBlocks2(
+					ctx,
+					pool,
+					chunkDownload,
+					fileEncKey,
+					writer,
+					fileDownload.blocksCounter,
+					fileDownload.bytesCounter)
+				if err != nil {
+					return err
+				}
+
+				fileDownload.chunksCounter.Add(1)
+			}
+		}
+	})
+
+	return g.Wait()
+}
+
+// ArchivalMetadata returns file metadata with chunks and blocks including PDP data.
+func (sdk *IPC) ArchivalMetadata(ctx context.Context, bucketName, fileName string) (_ ArchivalMetadata, err error) {
+	defer mon.Task()(&ctx, bucketName, fileName)(&err)
+
+	fileNameEnc, err := sdk.maybeEncryptMetadata(fileName, bucketName)
+	if err != nil {
+		return ArchivalMetadata{}, errSDK.Wrap(err)
+	}
+	bucketNameEnc, err := sdk.maybeEncryptMetadata(bucketName, "bucket")
+	if err != nil {
+		return ArchivalMetadata{}, errSDK.Wrap(err)
+	}
+
+	res, err := sdk.client.FileDownloadCreate(ctx, &pb.IPCFileDownloadCreateRequest{
+		BucketName: bucketNameEnc,
+		FileName:   fileNameEnc,
+		Address:    sdk.ipc.Auth.From.String(),
+	})
+	if err != nil {
+		return ArchivalMetadata{}, errSDK.Wrap(err)
+	}
+
+	result := ArchivalMetadata{
+		BucketName: bucketNameEnc,
+		Name:       fileNameEnc,
+		Chunks:     make([]ArchivalChunk, 0, len(res.Chunks)),
+	}
+
+	pool := newConnectionPool()
+	defer func() {
+		if closeErr := pool.close(); closeErr != nil {
+			err = errors.Join(err, closeErr)
+		}
+	}()
+
+	type resolvedBlock struct {
+		Pos     int
+		CID     string
+		Size    int64
+		PDPData *PDPBlockData
+	}
+
+	for i, chunk := range res.Chunks {
+		chunkRes, err := sdk.client.FileDownloadChunkCreate(ctx, &pb.IPCFileDownloadChunkCreateRequest{
+			BucketName: bucketNameEnc,
+			FileName:   fileNameEnc,
+			ChunkCid:   chunk.Cid,
+			ChunkIndex: int64(i),
+			Address:    sdk.ipc.Auth.From.String(),
+		})
+		if err != nil {
+			return ArchivalMetadata{}, errSDK.Wrap(err)
+		}
+
+		archivalChunk := ArchivalChunk{
+			Chunk: Chunk{
+				CID:         chunk.Cid,
+				EncodedSize: chunk.EncodedSize,
+				Size:        chunk.Size,
+				Index:       int64(i),
+			},
+			Blocks: make([]ArchivalBlock, len(chunkRes.Blocks)),
+		}
+
+		g, gctx := errgroup.WithContext(ctx)
+		g.SetLimit(sdk.maxConcurrency)
+		ch := make(chan resolvedBlock, len(chunkRes.Blocks))
+
+		for idx, block := range chunkRes.Blocks {
+			rb := resolvedBlock{
+				Pos:  idx,
+				CID:  block.Cid,
+				Size: block.Size,
+			}
+
+			g.Go(func() error {
+				pdpBlock, err := sdk.resolveBlock(gctx, pool, FileBlockDownload{
+					CID:         block.Cid,
+					NodeAddress: block.NodeAddress,
+				})
+
+				if err != nil {
+					if !errors.As(err, &ErrMissingArchivalBlock{}) {
+						return err
+					}
+				} else {
+					// if resolved, set PDP data
+					rb.PDPData = &pdpBlock
+				}
+
+				ch <- rb
+
+				return nil
+			})
+		}
+
+		if err := g.Wait(); err != nil {
+			close(ch)
+			return ArchivalMetadata{}, errSDK.Wrap(err)
+		}
+		close(ch)
+
+		for resolved := range ch {
+			archivalChunk.Blocks[resolved.Pos] = ArchivalBlock{
+				CID:     resolved.CID,
+				Size:    resolved.Size,
+				PDPData: resolved.PDPData,
+			}
+		}
+
+		result.Chunks = append(result.Chunks, archivalChunk)
+	}
+
+	return result, nil
+}
+
 func (sdk *IPC) createChunkDownload(ctx context.Context, bucketName, fileName string, chunk Chunk) (_ FileChunkDownload, err error) {
 	defer mon.Task()(&ctx, chunk)(&err)
 
@@ -1109,6 +1417,7 @@ func (sdk *IPC) createChunkDownload(ctx context.Context, bucketName, fileName st
 		BucketName: bucketName,
 		FileName:   fileName,
 		ChunkCid:   chunk.CID,
+		ChunkIndex: chunk.Index,
 		Address:    sdk.ipc.Auth.From.String(),
 	})
 	if err != nil {
@@ -1118,12 +1427,10 @@ func (sdk *IPC) createChunkDownload(ctx context.Context, bucketName, fileName st
 	blocks := make([]FileBlockDownload, len(res.Blocks))
 	for i, block := range res.Blocks {
 		blocks[i] = FileBlockDownload{
-			CID: block.Cid,
-			Akave: &AkaveBlockData{
-				NodeID:      block.NodeId,
-				NodeAddress: block.NodeAddress,
-				Permit:      block.Permit,
-			},
+			CID:         block.Cid,
+			NodeID:      block.NodeId,
+			NodeAddress: block.NodeAddress,
+			Permit:      block.Permit,
 		}
 	}
 
@@ -1219,6 +1526,136 @@ func (sdk *IPC) downloadChunkBlocks(
 	return nil
 }
 
+// downloadChunkBlocks2 resolves all chunk block references and download blocks strictly from PDP provider.
+func (sdk *IPC) downloadChunkBlocks2(
+	ctx context.Context,
+	pool *connectionPool,
+	chunkDownload FileChunkDownload,
+	fileEncryptionKey []byte,
+	writer io.Writer,
+	blockCount, bytesCount *atomic.Int64,
+) (err error) {
+
+	defer mon.Task()(&ctx, chunkDownload)(&err)
+
+	g, ctx := errgroup.WithContext(ctx)
+	g.SetLimit(sdk.maxConcurrency)
+
+	type retrievedBlock struct {
+		Pos  int
+		CID  string
+		Data []byte
+	}
+	ch := make(chan retrievedBlock, len(chunkDownload.Blocks))
+
+	for i, block := range chunkDownload.Blocks {
+		deriveCtx := context.WithoutCancel(ctx)
+
+		g.Go(func() (err error) {
+			defer mon.TaskNamed("(*IPC).downloadBlock2")(&deriveCtx, block.CID)(&err)
+
+			pdpBlock, err := sdk.resolveBlock(ctx, pool, block)
+			if err != nil {
+				return err
+			}
+
+			blockData, err := httpext.RangeDownload(ctx,
+				sdk.httpClient,
+				pdpBlock.URL,
+				pdpBlock.Offset,
+				pdpBlock.Size,
+			)
+			if err != nil {
+				return err
+			}
+
+			// Verify that the downloaded data matches the expected CID.
+			if err := cids.VerifyRaw(block.CID, blockData); err != nil {
+				return fmt.Errorf("block CID verification failed: %w", err)
+			}
+
+			ch <- retrievedBlock{
+				Pos:  i,
+				CID:  block.CID,
+				Data: blockData,
+			}
+			blockCount.Add(1)
+			bytesCount.Add(int64(len(blockData)))
+			return nil
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		return errSDK.Wrap(err)
+	}
+	close(ch)
+
+	blocks := make([][]byte, len(chunkDownload.Blocks))
+	for retrieved := range ch {
+		data, err := ExtractBlockData(retrieved.CID, retrieved.Data)
+		if err != nil {
+			return errSDK.Wrap(err)
+		}
+		blocks[retrieved.Pos] = data
+	}
+
+	var data []byte
+	if sdk.ec != nil { // erasure coding is enabled
+		data, err = sdk.ec.ExtractData(blocks, 0)
+		if err != nil {
+			return errSDK.Wrap(err)
+		}
+	} else {
+		data = bytes.Join(blocks, nil)
+	}
+
+	if len(fileEncryptionKey) > 0 {
+		data, err = encryption.Decrypt(fileEncryptionKey, data, fmt.Appendf(nil, "%d", chunkDownload.Index))
+		if err != nil {
+			return errSDK.Wrap(err)
+		}
+	}
+
+	if _, err := writer.Write(data); err != nil {
+		return errSDK.Wrap(err)
+	}
+
+	return nil
+}
+
+// resolveBlock resolves block metadata from PDP provider.
+func (sdk *IPC) resolveBlock(ctx context.Context, pool *connectionPool, block FileBlockDownload) (_ PDPBlockData, err error) {
+	defer mon.Task()(&ctx, block.CID)(&err)
+
+	client, closer, err := pool.createArchivalClient(block.NodeAddress, sdk.useConnectionPool)
+	if err != nil {
+		return PDPBlockData{}, err
+	}
+	if closer != nil {
+		defer func() {
+			if closeErr := closer(); closeErr != nil {
+				slog.Warn("failed to close connection",
+					slog.String("block_cid", block.CID),
+					slog.String("error", closeErr.Error()))
+			}
+		}()
+	}
+	resp, err := client.FileResolveBlock(ctx, &pb.IPCFileResolveBlockRequest{BlockCid: block.CID})
+	if err != nil {
+		if st, ok := status.FromError(err); ok && st.Code() == codes.NotFound {
+			return PDPBlockData{}, ErrMissingArchivalBlock{BlockCID: block.CID}
+		}
+		return PDPBlockData{}, err
+	}
+
+	return PDPBlockData{
+		URL:       resp.Block.GetUrl(),
+		Offset:    resp.Block.GetOffset(),
+		Size:      resp.Block.GetSize(),
+		DataSetID: resp.Block.GetDataSetId(),
+	}, nil
+}
+
 func (sdk *IPC) fetchBlockData(
 	ctx context.Context,
 	pool *connectionPool,
@@ -1227,11 +1664,11 @@ func (sdk *IPC) fetchBlockData(
 	block FileBlockDownload,
 ) ([]byte, error) {
 
-	if block.Akave == nil && block.Filecoin == nil {
+	if block.NodeAddress == "" {
 		return nil, errMissingBlockMetadata
 	}
 
-	client, closer, err := pool.createIPCClient(block.Akave.NodeAddress, sdk.useConnectionPool)
+	client, closer, err := pool.createIPCClient(block.NodeAddress, sdk.useConnectionPool)
 	if err != nil {
 		return nil, err
 	}
@@ -1271,7 +1708,7 @@ func (sdk *IPC) fetchBlockData(
 	return buf.Bytes(), nil
 }
 
-// Encrypts the given metadata if metadata encryption is enabled and encryption key is set.
+// maybeEncryptMetadata encrypts the given metadata if metadata encryption is enabled and encryption key is set.
 func (sdk *IPC) maybeEncryptMetadata(value, derivationPath string) (string, error) {
 	if len(sdk.encryptionKey) > 0 && sdk.useMetadataEncryption {
 		encrypted, err := encryption.EncryptD(sdk.encryptionKey, []byte(value), []byte(derivationPath))
@@ -1279,6 +1716,25 @@ func (sdk *IPC) maybeEncryptMetadata(value, derivationPath string) (string, erro
 			return "", err
 		}
 		return hex.EncodeToString(encrypted), nil
+	}
+
+	return value, nil
+}
+
+// maybeDecryptMetadata decrypts the given metadata if metadata encryption is enabled and encryption key is set.
+func (sdk *IPC) maybeDecryptMetadata(value, derivationPath string) (string, error) {
+	if len(sdk.encryptionKey) > 0 && sdk.useMetadataEncryption {
+		encrypted, err := hex.DecodeString(value)
+		if err != nil {
+			return "", errSDK.Wrap(err)
+		}
+
+		decrypted, err := encryption.Decrypt(sdk.encryptionKey, encrypted, []byte(derivationPath))
+		if err != nil {
+			return "", errSDK.Wrap(err)
+		}
+
+		return string(decrypted), nil
 	}
 
 	return value, nil

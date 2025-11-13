@@ -4,6 +4,7 @@
 package main
 
 import (
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,22 +16,17 @@ import (
 )
 
 var (
-	ipcCmd = &cobra.Command{
-		Use:   "ipc",
-		Short: "Manage files and buckets using IPC API",
-	}
-
-	ipcBucketCmd = &cobra.Command{
+	bucketCmd = &cobra.Command{
 		Use:   "bucket",
-		Short: "Manage buckets ipc",
+		Short: "Manage buckets",
 	}
 
-	ipcFileCmd = &cobra.Command{
+	fileCmd = &cobra.Command{
 		Use:   "file",
-		Short: "Manage files in buckets ipc",
+		Short: "Manage files in buckets",
 	}
 
-	ipcBucketCreateCmd = &cobra.Command{
+	bucketCreateCmd = &cobra.Command{
 		Use:   "create",
 		Short: "Creates a new bucket",
 		Args: func(cmd *cobra.Command, args []string) error {
@@ -44,10 +40,10 @@ var (
 
 			return nil
 		},
-		RunE: cmdCreateBucketIPC,
+		RunE: cmdCreateBucket,
 	}
 
-	ipcBucketDeleteCmd = &cobra.Command{
+	bucketDeleteCmd = &cobra.Command{
 		Use:   "delete",
 		Short: "Removes a bucket",
 		Args: func(cmd *cobra.Command, args []string) error {
@@ -61,10 +57,10 @@ var (
 
 			return nil
 		},
-		RunE: cmdDeleteBucketIPC,
+		RunE: cmdDeleteBucket,
 	}
 
-	ipcBucketViewCmd = &cobra.Command{
+	bucketViewCmd = &cobra.Command{
 		Use:   "view",
 		Short: "Views a bucket's details",
 		Args: func(cmd *cobra.Command, args []string) error {
@@ -82,17 +78,17 @@ var (
 
 			return nil
 		},
-		RunE: cmdViewBucketIPC,
+		RunE: cmdViewBucket,
 	}
 
-	ipcBucketListCmd = &cobra.Command{
+	bucketListCmd = &cobra.Command{
 		Use:   "list",
 		Short: "Lists all buckets",
 		Args:  cobra.NoArgs,
-		RunE:  cmdListBucketsIPC,
+		RunE:  cmdListBuckets,
 	}
 
-	ipcFileListCmd = &cobra.Command{
+	fileListCmd = &cobra.Command{
 		Use:   "list",
 		Short: "Lists all files in a bucket",
 		Args: func(cmd *cobra.Command, args []string) error {
@@ -110,10 +106,10 @@ var (
 
 			return nil
 		},
-		RunE: cmdListFilesIPC,
+		RunE: cmdListFiles,
 	}
 
-	ipcFileInfoCmd = &cobra.Command{
+	fileInfoCmd = &cobra.Command{
 		Use:   "info",
 		Short: "Retrieves file information",
 		Args: func(cmd *cobra.Command, args []string) error {
@@ -135,10 +131,10 @@ var (
 
 			return nil
 		},
-		RunE: cmdFileInfoIPC,
+		RunE: cmdFileInfo,
 	}
 
-	ipcFileUploadCmd = &cobra.Command{
+	fileUploadCmd = &cobra.Command{
 		Use:   "upload",
 		Short: "Uploads a file to a bucket",
 		Args: func(cmd *cobra.Command, args []string) error {
@@ -160,10 +156,10 @@ var (
 
 			return nil
 		},
-		RunE: cmdFileUploadIPC,
+		RunE: cmdFileUpload,
 	}
 
-	ipcFileDownloadCmd = &cobra.Command{
+	fileDownloadCmd = &cobra.Command{
 		Use:   "download",
 		Short: "Downloads a file from a bucket",
 		Args: func(cmd *cobra.Command, args []string) error {
@@ -189,10 +185,10 @@ var (
 
 			return nil
 		},
-		RunE: cmdFileDownloadIPC,
+		RunE: cmdFileDownload,
 	}
 
-	ipcFileDeleteCmd = &cobra.Command{
+	fileDeleteCmd = &cobra.Command{
 		Use:   "delete",
 		Short: "Removes a file from a bucket",
 		Args: func(cmd *cobra.Command, args []string) error {
@@ -214,21 +210,59 @@ var (
 
 			return nil
 		},
-		RunE: cmdFileDeleteIPC,
+		RunE: cmdFileDelete,
+	}
+
+	archivalMetadataCmd = &cobra.Command{
+		Use:   "archival-metadata",
+		Short: "Retrieves archival metadata for a file",
+		Args: func(cmd *cobra.Command, args []string) error {
+			for i, arg := range args {
+				args[i] = strings.TrimSpace(arg)
+			}
+
+			if len(args) != 2 {
+				return NewCmdParamsError(fmt.Sprintf("archival-metadata command expects exactly 2 arguments [bucket name] [file name]; got %d", len(args)))
+			}
+
+			if args[0] == "" {
+				return NewCmdParamsError("bucket name is required")
+			}
+
+			if args[1] == "" {
+				return NewCmdParamsError("file name is required")
+			}
+
+			return nil
+		},
+		RunE: cmdArchivalMetadata,
 	}
 )
 
-func cmdCreateBucketIPC(cmd *cobra.Command, args []string) (err error) {
+func initStorageCommands() {
+	bucketCmd.AddCommand(bucketCreateCmd)
+	bucketCmd.AddCommand(bucketViewCmd)
+	bucketCmd.AddCommand(bucketListCmd)
+	bucketCmd.AddCommand(bucketDeleteCmd)
+	fileCmd.AddCommand(fileUploadCmd)
+	fileCmd.AddCommand(fileDownloadCmd)
+	fileCmd.AddCommand(fileListCmd)
+	fileCmd.AddCommand(fileInfoCmd)
+	fileCmd.AddCommand(fileDeleteCmd)
+	fileCmd.AddCommand(archivalMetadataCmd)
+}
+
+func cmdCreateBucket(cmd *cobra.Command, args []string) (err error) {
 	ctx := cmd.Context()
 	defer mon.Task()(&ctx, args)(&err)
 	bucketName := args[0]
 
-	privKey, err := getWalletPrivateKey(cmd)
+	sdkOptions, err := defaultSDKOptions(cmd)
 	if err != nil {
 		return err
 	}
 
-	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool, sdk.WithPrivateKey(privKey))
+	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool, sdkOptions...)
 	if err != nil {
 		return err
 	}
@@ -253,17 +287,17 @@ func cmdCreateBucketIPC(cmd *cobra.Command, args []string) (err error) {
 	return nil
 }
 
-func cmdDeleteBucketIPC(cmd *cobra.Command, args []string) (err error) {
+func cmdDeleteBucket(cmd *cobra.Command, args []string) (err error) {
 	ctx := cmd.Context()
 	defer mon.Task()(&ctx, args)(&err)
 	bucketName := args[0]
 
-	privKey, err := getWalletPrivateKey(cmd)
+	sdkOptions, err := defaultSDKOptions(cmd)
 	if err != nil {
 		return err
 	}
 
-	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool, sdk.WithPrivateKey(privKey))
+	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool, sdkOptions...)
 	if err != nil {
 		return err
 	}
@@ -278,7 +312,8 @@ func cmdDeleteBucketIPC(cmd *cobra.Command, args []string) (err error) {
 		return err
 	}
 
-	if err := ipc.DeleteBucket(ctx, bucketName); err != nil {
+	err = ipc.DeleteBucket(ctx, bucketName)
+	if err != nil {
 		return fmt.Errorf("failed to delete bucket: %w", err)
 	}
 
@@ -287,17 +322,17 @@ func cmdDeleteBucketIPC(cmd *cobra.Command, args []string) (err error) {
 	return nil
 }
 
-func cmdViewBucketIPC(cmd *cobra.Command, args []string) (err error) {
+func cmdViewBucket(cmd *cobra.Command, args []string) (err error) {
 	ctx := cmd.Context()
 	defer mon.Task()(&ctx, args)(&err)
 	bucketName := args[0]
 
-	privKey, err := getWalletPrivateKey(cmd)
+	sdkOptions, err := defaultSDKOptions(cmd)
 	if err != nil {
 		return err
 	}
 
-	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool, sdk.WithPrivateKey(privKey))
+	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool, sdkOptions...)
 	if err != nil {
 		return err
 	}
@@ -322,16 +357,16 @@ func cmdViewBucketIPC(cmd *cobra.Command, args []string) (err error) {
 	return nil
 }
 
-func cmdListBucketsIPC(cmd *cobra.Command, args []string) (err error) {
+func cmdListBuckets(cmd *cobra.Command, args []string) (err error) {
 	ctx := cmd.Context()
 	defer mon.Task()(&ctx, args)(&err)
 
-	privKey, err := getWalletPrivateKey(cmd)
+	sdkOptions, err := defaultSDKOptions(cmd)
 	if err != nil {
 		return err
 	}
 
-	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool, sdk.WithPrivateKey(privKey))
+	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool, sdkOptions...)
 	if err != nil {
 		return err
 	}
@@ -362,17 +397,17 @@ func cmdListBucketsIPC(cmd *cobra.Command, args []string) (err error) {
 	return nil
 }
 
-func cmdListFilesIPC(cmd *cobra.Command, args []string) (err error) {
+func cmdListFiles(cmd *cobra.Command, args []string) (err error) {
 	ctx := cmd.Context()
 	defer mon.Task()(&ctx, args)(&err)
 	bucketName := args[0]
 
-	privKey, err := getWalletPrivateKey(cmd)
+	sdkOptions, err := defaultSDKOptions(cmd)
 	if err != nil {
 		return err
 	}
 
-	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool, sdk.WithPrivateKey(privKey))
+	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool, sdkOptions...)
 	if err != nil {
 		return err
 	}
@@ -403,18 +438,18 @@ func cmdListFilesIPC(cmd *cobra.Command, args []string) (err error) {
 	return nil
 }
 
-func cmdFileInfoIPC(cmd *cobra.Command, args []string) (err error) {
+func cmdFileInfo(cmd *cobra.Command, args []string) (err error) {
 	ctx := cmd.Context()
 	defer mon.Task()(&ctx, args)(&err)
 	bucketName := args[0]
 	fileName := args[1]
 
-	privKey, err := getWalletPrivateKey(cmd)
+	sdkOptions, err := defaultSDKOptions(cmd)
 	if err != nil {
 		return err
 	}
 
-	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool, sdk.WithPrivateKey(privKey))
+	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool, sdkOptions...)
 	if err != nil {
 		return err
 	}
@@ -439,7 +474,7 @@ func cmdFileInfoIPC(cmd *cobra.Command, args []string) (err error) {
 	return nil
 }
 
-func cmdFileUploadIPC(cmd *cobra.Command, args []string) (err error) {
+func cmdFileUpload(cmd *cobra.Command, args []string) (err error) {
 	ctx := cmd.Context()
 	defer mon.Task()(&ctx, args)(&err)
 	bucketName := args[0]
@@ -461,23 +496,13 @@ func cmdFileUploadIPC(cmd *cobra.Command, args []string) (err error) {
 		return fmt.Errorf("failed to get file info: %w", err)
 	}
 
-	privKey, err := getWalletPrivateKey(cmd)
+	sdkOpts, err := defaultSDKOptions(cmd)
 	if err != nil {
 		return err
 	}
+	sdkOpts = append(sdkOpts, sdk.WithErasureCoding(parityBlocks()))
 
-	key, err := encryptionKeyBytes()
-	if err != nil {
-		return err
-	}
-
-	sdkOptions := []sdk.Option{
-		sdk.WithPrivateKey(privKey),
-		sdk.WithEncryptionKey(key),
-		sdk.WithErasureCoding(parityBlocks()),
-	}
-
-	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool, sdkOptions...)
+	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool, sdkOpts...)
 	if err != nil {
 		return err
 	}
@@ -524,30 +549,20 @@ func cmdFileUploadIPC(cmd *cobra.Command, args []string) (err error) {
 	return nil
 }
 
-func cmdFileDownloadIPC(cmd *cobra.Command, args []string) (err error) {
+func cmdFileDownload(cmd *cobra.Command, args []string) (err error) {
 	ctx := cmd.Context()
 	defer mon.Task()(&ctx, args)(&err)
 	bucketName := args[0]
 	fileName := args[1]
 	destPath := args[2]
 
-	privKey, err := getWalletPrivateKey(cmd)
+	sdkOpts, err := defaultSDKOptions(cmd)
 	if err != nil {
 		return err
 	}
+	sdkOpts = append(sdkOpts, sdk.WithErasureCoding(parityBlocks()))
 
-	key, err := encryptionKeyBytes()
-	if err != nil {
-		return err
-	}
-
-	sdkOptions := []sdk.Option{
-		sdk.WithPrivateKey(privKey),
-		sdk.WithEncryptionKey(key),
-		sdk.WithErasureCoding(parityBlocks()),
-	}
-
-	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool, sdkOptions...)
+	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool, sdkOpts...)
 	if err != nil {
 		return err
 	}
@@ -584,8 +599,15 @@ func cmdFileDownloadIPC(cmd *cobra.Command, args []string) (err error) {
 
 	bar, done := trackProgress(cmd, info.EncodedSize, fileDownload, "Downloading")
 
-	if err := ipc.Download(ctx, fileDownload, outFile); err != nil {
-		return fmt.Errorf("failed to download file: %w", err)
+	// TODO: add test for archival mode
+	if archivalDownload {
+		if err := ipc.DownloadArchival(ctx, fileDownload, outFile); err != nil {
+			return fmt.Errorf("failed to download file from pdp: %w", err)
+		}
+	} else {
+		if err := ipc.Download(ctx, fileDownload, outFile); err != nil {
+			return fmt.Errorf("failed to download file: %w", err)
+		}
 	}
 
 	close(done)
@@ -598,26 +620,24 @@ func cmdFileDownloadIPC(cmd *cobra.Command, args []string) (err error) {
 
 	chunks, blocks, finalBytes := fileDownload.Stats()
 	cmd.PrintErrf("File downloaded successfully: Name=%s, Path=%s, Size=%d, Chunks=%d, Blocks=%d\n",
-		fileName, filepath.Join(destPath, fileName), finalBytes, chunks, blocks)
+		info.Name, filepath.Join(destPath, fileName), finalBytes, chunks, blocks)
 
 	return nil
 }
 
-func cmdFileDeleteIPC(cmd *cobra.Command, args []string) (err error) {
+func cmdFileDelete(cmd *cobra.Command, args []string) (err error) {
 	ctx := cmd.Context()
 	defer mon.Task()(&ctx, args)(&err)
 	bucketName := args[0]
 	fileName := args[1]
 
-	privKey, err := getWalletPrivateKey(cmd)
+	sdkOpts, err := defaultSDKOptions(cmd)
 	if err != nil {
 		return err
 	}
+	sdkOpts = append(sdkOpts, sdk.WithErasureCoding(parityBlocks()))
 
-	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool,
-		sdk.WithPrivateKey(privKey),
-		sdk.WithErasureCoding(parityBlocks()),
-	)
+	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool, sdkOpts...)
 	if err != nil {
 		return err
 	}
@@ -640,6 +660,87 @@ func cmdFileDeleteIPC(cmd *cobra.Command, args []string) (err error) {
 	return nil
 }
 
+func cmdArchivalMetadata(cmd *cobra.Command, args []string) (err error) {
+	ctx := cmd.Context()
+	defer mon.Task()(&ctx, args)(&err)
+
+	bucketName, fileName := args[0], args[1]
+
+	sdkOptions, err := defaultSDKOptions(cmd)
+	if err != nil {
+		return err
+	}
+
+	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool, sdkOptions...)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if cerr := akaveSDK.Close(); cerr != nil {
+			cmd.PrintErrf("failed to close SDK: %v", cerr)
+		}
+	}()
+
+	ipc, err := akaveSDK.IPC()
+	if err != nil {
+		return err
+	}
+
+	metadata, err := ipc.ArchivalMetadata(ctx, bucketName, fileName)
+	if err != nil {
+		return fmt.Errorf("failed to get archival metadata: %w", err)
+	}
+
+	if archivalMetadataVerbose {
+		printVerboseArchivalMetadata(cmd, metadata)
+	} else {
+		printSimpleArchivalMetadata(cmd, metadata)
+	}
+
+	return nil
+}
+
+func printSimpleArchivalMetadata(cmd *cobra.Command, metadata sdk.ArchivalMetadata) {
+	cmd.PrintErrf("Bucket: %s, File: %s\n", metadata.BucketName, metadata.Name)
+
+	allBlocksHavePDP := true
+
+outer:
+	for _, chunk := range metadata.Chunks {
+		for _, block := range chunk.Blocks {
+			if block.PDPData == nil {
+				allBlocksHavePDP = false
+				break outer
+			}
+		}
+	}
+
+	if allBlocksHavePDP {
+		cmd.PrintErrln("Status: Available for download from archival storage (all blocks have PDP data)")
+	} else {
+		cmd.PrintErrln("Status: Not fully available in archival storage (some blocks are missing PDP data)")
+	}
+}
+
+func printVerboseArchivalMetadata(cmd *cobra.Command, metadata sdk.ArchivalMetadata) {
+	cmd.PrintErrf("Bucket: %s, File: %s\n", metadata.BucketName, metadata.Name)
+	cmd.PrintErrf("Total Chunks: %d\n\n", len(metadata.Chunks))
+
+	for _, chunk := range metadata.Chunks {
+		cmd.PrintErrf("  Chunk CID: %s, Size: %d\n", chunk.CID, chunk.Size)
+
+		for _, block := range chunk.Blocks {
+			if block.PDPData != nil {
+				cmd.PrintErrf("    Block CID: %s, URL: %s, Offset: %d, Size: %d, Dataset ID: %d\n",
+					block.CID, block.PDPData.URL, block.PDPData.Offset, block.PDPData.Size, block.PDPData.DataSetID)
+			} else {
+				cmd.PrintErrf("    Block CID: %s, Size: %d (No PDP data)\n", block.CID, block.Size)
+			}
+		}
+		cmd.PrintErrln()
+	}
+}
+
 // getWalletPrivateKey returns the private key either from the flag or from a wallet.
 // It also prints the wallet address and name if a wallet was used.
 func getWalletPrivateKey(cmd *cobra.Command) (privKey string, err error) {
@@ -653,6 +754,34 @@ func getWalletPrivateKey(cmd *cobra.Command) (privKey string, err error) {
 		return "", fmt.Errorf("%w", err)
 	}
 
-	cmd.PrintErrf("Using wallet account: %s (%s)\n", name, walletAddress)
-	return privKey, nil
+	cmd.PrintErrln(fmt.Sprintf("Using wallet account: %s (%s)", name, walletAddress))
+	return privKey, err
+}
+
+// defaultSDKOptions constructs the default SDK options based on CLI flags.
+func defaultSDKOptions(cmd *cobra.Command) ([]sdk.Option, error) {
+	privateKey, err := getWalletPrivateKey(cmd)
+	if err != nil {
+		return nil, err
+	}
+
+	var encryptionKeyBytes []byte
+	if encryptionKey != "" {
+		decodedKey, err := hex.DecodeString(encryptionKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode encryption key: %w", err)
+		}
+		encryptionKeyBytes = decodedKey
+	}
+
+	opts := []sdk.Option{
+		sdk.WithPrivateKey(privateKey),
+		sdk.WithEncryptionKey(encryptionKeyBytes),
+	}
+
+	if useMetadataEncryption {
+		opts = append(opts, sdk.WithMetadataEncryption())
+	}
+
+	return opts, nil
 }
