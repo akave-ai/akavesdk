@@ -276,36 +276,36 @@ Disable erasure coding flag `disable-erasure-coding` ensures that file is not er
 ### Bucket Commands
 - **Create Bucket**: Creates a new bucket.
   ```sh
-  akavecli bucket create <bucket-name> --node-address=localhost:5000 --private-key="some-private-key"
+  akavecli bucket create <bucket-name> --node-address=connect.akave.ai:5500 --private-key="some-private-key"
   ```
 - **Delete Bucket**: Deletes a specific bucket.
   ```sh
-  akavecli bucket delete <bucket-name> --node-address=localhost:5000 --private-key="some-private-key"
+  akavecli bucket delete <bucket-name> --node-address=connect.akave.ai:5500 --private-key="some-private-key"
   ```
 - **View Bucket**: Retrieves details of a specific bucket.
   ```sh
-  akavecli bucket view <bucket-name> --node-address=localhost:5000 --private-key="some-private-key"
+  akavecli bucket view <bucket-name> --node-address=connect.akave.ai:5500 --private-key="some-private-key"
   ```
 - **List Buckets**: List all available buckets.
   ```sh
-  akavecli bucket list --node-address=localhost:5000 --private-key="some-private-key"
+  akavecli bucket list --node-address=connect.akave.ai:5500 --private-key="some-private-key"
   ```
 ### File Commands
 - **List Files**: List all files in a bucket.
   ```sh
-  akavecli file list <bucket-name> --node-address=localhost:5000 --private-key="some-private-key"
+  akavecli file list <bucket-name> --node-address=connect.akave.ai:5500 --private-key="some-private-key"
   ```
 - **File Info**: Retrieves file information.
   ```sh
-  akavecli file info <bucket-name> <file-name> --node-address=localhost:5000 --private-key="some-private-key"
+  akavecli file info <bucket-name> <file-name> --node-address=connect.akave.ai:5500 --private-key="some-private-key"
   ```
 - **Upload File**: Uploads a file to a bucket(`-e` is optional, key length **must be 32 bytes** long, `disable-erasure-coding` is optional)
   ```sh
-  akavecli file upload <bucket-name> <file-path> -e="encryption-key" --disable-erasure-coding --node-address=localhost:5000 --private-key="some-private-key"
+  akavecli file upload <bucket-name> <file-path> -e="encryption-key" --disable-erasure-coding --node-address=connect.akave.ai:5500 --private-key="some-private-key"
   ```
 - **Download File**: Downloads a file from a bucket(`-e` is optional, key length **must be 32 bytes** long, `disable-erasure-coding` is optional)
   ```sh
-  akavecli file download <bucket-name> <file-name> <destination-path> -e="encryption-key" --disable-erasure-coding --node-address=localhost:5000 --private-key="some-private-key"
+  akavecli file download <bucket-name> <file-name> <destination-path> -e="encryption-key" --disable-erasure-coding --node-address=connect.akave.ai:5500 --private-key="some-private-key"
   ```
 
 ### Wallet Commands
