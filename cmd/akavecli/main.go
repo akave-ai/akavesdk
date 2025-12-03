@@ -85,12 +85,32 @@ func init() {
 	rootCmd.AddCommand(fileCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(walletCmd)
+	rootCmd.AddCommand(configCmd)
 
 	// Initialize file and buckets commands
 	initStorageCommands()
 
 	// Initialize wallet commands
 	initWalletCommands()
+
+	// Set up PreRunE hook to load config defaults for all commands except config and version
+	for _, cmd := range rootCmd.Commands() {
+		if cmd.Name() != "config" && cmd.Name() != "version" {
+			// Store the original PreRunE if it exists
+			originalPreRunE := cmd.PreRunE
+			cmd.PreRunE = func(cmd *cobra.Command, args []string) error {
+				// Load config defaults first
+				if err := applyConfigDefaults(cmd); err != nil {
+					return fmt.Errorf("failed to load configuration: %w", err)
+				}
+				// Then run original PreRunE if it exists
+				if originalPreRunE != nil {
+					return originalPreRunE(cmd, args)
+				}
+				return nil
+			}
+		}
+	}
 }
 
 func main() {
