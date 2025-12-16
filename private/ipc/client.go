@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum"
-	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -23,11 +22,10 @@ import (
 
 // Config represents configuration for the storage contract client.
 type Config struct {
-	DialURI                      string `usage:"addr of ipc endpoint"`
-	PrivateKey                   string `usage:"hex private key used to sign transactions"`
-	StorageContractAddress       string `usage:"hex storage contract address"`
-	AccessContractAddress        string `usage:"hex access manager contract address"`
-	PolicyFactoryContractAddress string `usage:"hex policy factory contract address"`
+	DialURI                string `usage:"addr of ipc endpoint"`
+	PrivateKey             string `usage:"hex private key used to sign transactions"`
+	StorageContractAddress string `usage:"hex storage contract address"`
+	AccessContractAddress  string `usage:"hex access manager contract address"`
 }
 
 // StorageData represents the struct for signing.
@@ -45,32 +43,27 @@ type StorageData struct {
 // DefaultConfig returns default configuration for the ipc.
 func DefaultConfig() Config {
 	return Config{
-		DialURI:                      "",
-		PrivateKey:                   "",
-		StorageContractAddress:       "",
-		AccessContractAddress:        "",
-		PolicyFactoryContractAddress: "",
+		DialURI:                "",
+		PrivateKey:             "",
+		StorageContractAddress: "",
+		AccessContractAddress:  "",
 	}
 }
 
 // Client represents storage client.
 type Client struct {
-	Storage          *contracts.Storage
-	AccessManager    *contracts.AccessManager
-	PolicyFactory    *contracts.PolicyFactory
-	ListPolicyAbi    *abi.ABI
-	PolicyFactoryAbi *abi.ABI
-	Auth             *bind.TransactOpts
-	Eth              *ethclient.Client
-	Addresses        ContractsAddresses
-	chainID          *big.Int
+	Storage       *contracts.Storage
+	AccessManager *contracts.AccessManager
+	Auth          *bind.TransactOpts
+	Eth           *ethclient.Client
+	Addresses     ContractsAddresses
+	chainID       *big.Int
 }
 
 // ContractsAddresses contains addresses of deployed contracts.
 type ContractsAddresses struct {
 	Storage       string
 	AccessManager string
-	PolicyFactory string
 }
 
 // Dial creates eth client, new smart-contract instance, auth.
@@ -100,41 +93,21 @@ func Dial(ctx context.Context, config Config) (*Client, error) {
 		return &Client{}, err
 	}
 
-	lpAbi, err := contracts.ListPolicyMetaData.GetAbi()
-	if err != nil {
-		return &Client{}, err
-	}
-
-	pfAbi, err := contracts.PolicyFactoryMetaData.GetAbi()
-	if err != nil {
-		return &Client{}, err
-	}
-
 	auth, err := bind.NewKeyedTransactorWithChainID(privateKey, chainID)
 	if err != nil {
 		return &Client{}, err
 	}
 
 	ipcClient := &Client{
-		Storage:          storage,
-		AccessManager:    accessManager,
-		ListPolicyAbi:    lpAbi,
-		PolicyFactoryAbi: pfAbi,
-		Auth:             auth,
-		chainID:          chainID,
-		Eth:              client,
+		Storage:       storage,
+		AccessManager: accessManager,
+		Auth:          auth,
+		chainID:       chainID,
+		Eth:           client,
 		Addresses: ContractsAddresses{
 			Storage:       config.StorageContractAddress,
 			AccessManager: config.AccessContractAddress,
-			PolicyFactory: config.PolicyFactoryContractAddress,
 		},
-	}
-
-	if config.PolicyFactoryContractAddress != "" {
-		ipcClient.PolicyFactory, err = contracts.NewPolicyFactory(common.HexToAddress(config.PolicyFactoryContractAddress), client)
-		if err != nil {
-			return &Client{}, err
-		}
 	}
 
 	return ipcClient, nil
@@ -249,35 +222,6 @@ func DeployContracts(ctx context.Context, config Config) (*Client, error) {
 		return &Client{}, err
 	}
 
-	baseListPolicyAddress, tx, _, err := contracts.DeployListPolicy(client.Auth, client.Eth)
-	if err != nil {
-		return &Client{}, err
-	}
-	if err := client.WaitForTx(ctx, tx.Hash()); err != nil {
-		return &Client{}, err
-	}
-
-	policyFactoryAddress, tx, policyFactory, err := contracts.DeployPolicyFactory(client.Auth, client.Eth, baseListPolicyAddress)
-	if err != nil {
-		return &Client{}, err
-	}
-	if err := client.WaitForTx(ctx, tx.Hash()); err != nil {
-		return &Client{}, err
-	}
-
-	client.PolicyFactory = policyFactory
-	client.Addresses.PolicyFactory = policyFactoryAddress.String()
-
-	client.ListPolicyAbi, err = contracts.ListPolicyMetaData.GetAbi()
-	if err != nil {
-		return &Client{}, err
-	}
-
-	client.PolicyFactoryAbi, err = contracts.PolicyFactoryMetaData.GetAbi()
-	if err != nil {
-		return &Client{}, err
-	}
-
 	return client, nil
 }
 
@@ -286,14 +230,9 @@ func (client *Client) ChainID() *big.Int {
 	return client.chainID
 }
 
-// DeployListPolicy deploys new list policy for provided user address.
-func (client *Client) DeployListPolicy(ctx context.Context, user common.Address) (*contracts.ListPolicy, error) {
-	abiByte, err := client.ListPolicyAbi.Pack("initialize", user)
-	if err != nil {
-		return nil, err
-	}
-
-	tx, err := client.PolicyFactory.DeployPolicy(client.Auth, abiByte)
+// TestDeployListPolicy deploys new list policy for provided user address.
+func (client *Client) TestDeployListPolicy(ctx context.Context, user common.Address) (*contracts.ListPolicy, error) {
+	_, tx, listPolicy, err := contracts.DeployListPolicy(client.Auth, client.Eth)
 	if err != nil {
 		return nil, err
 	}
@@ -302,22 +241,12 @@ func (client *Client) DeployListPolicy(ctx context.Context, user common.Address)
 		return nil, err
 	}
 
-	r, err := client.Eth.TransactionReceipt(ctx, tx.Hash())
+	tx, err = listPolicy.Initialize(client.Auth, user)
 	if err != nil {
 		return nil, err
 	}
 
-	eventHash := client.PolicyFactoryAbi.Events["PolicyDeployed"].ID
-	var policyInstance common.Address
-	for _, log := range r.Logs {
-		if log.Topics[0] == eventHash {
-			policyInstance = common.HexToAddress(log.Topics[2].Hex())
-			break
-		}
-	}
-
-	listPolicy, err := contracts.NewListPolicy(policyInstance, client.Eth)
-	if err != nil {
+	if err := client.WaitForTx(ctx, tx.Hash()); err != nil {
 		return nil, err
 	}
 

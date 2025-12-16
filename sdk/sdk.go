@@ -52,10 +52,10 @@ type Option func(*SDK)
 
 // SDK is the Akave SDK.
 type SDK struct {
-	client     pb.NodeAPIClient
 	conn       *grpc.ClientConn
 	httpClient *http.Client
 	ec         *erasurecode.ErasureCode
+	pool       *connectionPool
 
 	maxConcurrency            int
 	blockPartSize             int64
@@ -149,8 +149,8 @@ func New(address string, maxConcurrency int, blockPartSize int64, useConnectionP
 	}
 
 	s := &SDK{
-		client:                    pb.NewNodeAPIClient(conn),
 		conn:                      conn,
+		pool:                      newConnectionPool(),
 		maxConcurrency:            maxConcurrency,
 		blockPartSize:             blockPartSize,
 		useConnectionPool:         useConnectionPool,
@@ -182,6 +182,7 @@ func New(address string, maxConcurrency int, blockPartSize int64, useConnectionP
 	}
 
 	if s.parityBlocksCount > 0 { // erasure coding enabled
+		var err error
 		s.ec, err = erasurecode.New(s.streamingMaxBlocksInChunk-s.parityBlocksCount, s.parityBlocksCount)
 		if err != nil {
 			return nil, errSDK.Wrap(err)
@@ -203,9 +204,9 @@ func New(address string, maxConcurrency int, blockPartSize int64, useConnectionP
 	return s, nil
 }
 
-// Close closes the SDK internal connection.
+// Close closes the SDK internal connections.
 func (sdk *SDK) Close() error {
-	return sdk.conn.Close()
+	return errors.Join(sdk.conn.Close(), sdk.pool.close())
 }
 
 // IPC returns SDK ipc API.
@@ -232,9 +233,9 @@ func (sdk *SDK) IPC() (*IPC, error) {
 		ipc:                   ipcClient,
 		chainID:               ipcClient.ChainID(),
 		storageAddress:        connParams.StorageAddress,
-		conn:                  sdk.conn,
 		httpClient:            sdk.httpClient,
 		ec:                    sdk.ec,
+		pool:                  sdk.pool,
 		privateKey:            sdk.privateKey,
 		maxConcurrency:        sdk.maxConcurrency,
 		blockPartSize:         sdk.blockPartSize,
