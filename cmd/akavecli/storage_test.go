@@ -95,7 +95,7 @@ func TestExternalDeleteBucketCommand(t *testing.T) {
 		{
 			name:           "Delete non encrypted bucket with encryption",
 			args:           []string{"bucket", "delete", "--private-key", privateKey, firstBucketName, "--node-address", nodeAddress, "--metadata-encryption", "--encryption-key", encKey},
-			expectedOutput: []string{"failed to get bucket: not found"},
+			expectedOutput: []string{"BucketNotFound"},
 			expectError:    true,
 		},
 		{
@@ -107,7 +107,7 @@ func TestExternalDeleteBucketCommand(t *testing.T) {
 		{
 			name:           "Delete encrypted bucket without encryption",
 			args:           []string{"bucket", "delete", "--private-key", privateKey, secondBucketName, "--node-address", nodeAddress},
-			expectedOutput: []string{"failed to get bucket: not found"},
+			expectedOutput: []string{"BucketNotFound"},
 			expectError:    true,
 		},
 		{
@@ -119,7 +119,7 @@ func TestExternalDeleteBucketCommand(t *testing.T) {
 		{
 			name:           "Delete not existing bucket",
 			args:           []string{"bucket", "delete", "--private-key", privateKey, firstBucketName, "--node-address", nodeAddress},
-			expectedOutput: []string{"failed to get bucket: not found"},
+			expectedOutput: []string{"BucketNotFound"},
 			expectError:    true,
 		},
 		{
@@ -175,13 +175,13 @@ func TestExternalViewBucketCommand(t *testing.T) {
 		{
 			name:           "View non encrypted bucket with encryption",
 			args:           []string{"bucket", "view", "--private-key", privateKey, "--metadata-encryption", "--encryption-key", encKey, firstBucketName, "--node-address", nodeAddress},
-			expectedOutput: []string{"failed to get bucket: not found"},
+			expectedOutput: []string{"BucketNotFound"},
 			expectError:    true,
 		},
 		{
 			name:           "View encrypted bucket without encryption",
 			args:           []string{"bucket", "view", "--private-key", privateKey, secondBucketName, "--node-address", nodeAddress},
-			expectedOutput: []string{"failed to get bucket: not found"},
+			expectedOutput: []string{"BucketNotFound"},
 			expectError:    true,
 		},
 		{
@@ -193,7 +193,7 @@ func TestExternalViewBucketCommand(t *testing.T) {
 		{
 			name:           "View non-existent bucket",
 			args:           []string{"bucket", "view", "--private-key", privateKey, "error", "--node-address", nodeAddress},
-			expectedOutput: []string{"failed to get bucket: not found"},
+			expectedOutput: []string{"BucketNotFound"},
 			expectError:    true,
 		},
 		{
@@ -557,7 +557,7 @@ func TestExternalFileInfoCommand(t *testing.T) {
 			name: "File info for encrypted bucket without metadata encryption flag",
 			args: []string{"file", "info", "--private-key", privateKey, encryptedBucketName, file2Name, "--node-address", nodeAddress},
 			expectedOutput: []string{
-				"file not exists",
+				"BucketNotFound",
 			},
 			expectError: true,
 		},
@@ -565,7 +565,7 @@ func TestExternalFileInfoCommand(t *testing.T) {
 			name: "File info for non-encrypted bucket with metadata encryption flag",
 			args: []string{"file", "info", "--private-key", privateKey, "--metadata-encryption", "--encryption-key", encKey, bucketName, fileName, "--node-address", nodeAddress},
 			expectedOutput: []string{
-				"file not exists",
+				"BucketNotFound",
 			},
 			expectError: true,
 		},

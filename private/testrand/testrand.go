@@ -12,11 +12,14 @@ import (
 	rand2 "math/rand"
 	"testing"
 
+	blocks "github.com/ipfs/go-block-format"
 	"github.com/ipfs/go-cid"
 	libp2pCrypto "github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multihash"
 	"github.com/stretchr/testify/require"
+
+	"github.com/akave-ai/akavesdk/private/memory"
 )
 
 // Bytes returns a slice of random bytes of the given size.
@@ -115,4 +118,17 @@ func CIDStrippedPrefix(t testing.TB) [32]byte {
 	var cFixed [32]byte
 	copy(cFixed[:], c.Bytes()[4:])
 	return cFixed
+}
+
+// Block generates block with random data of given size.
+func Block(t *testing.T, size memory.Size) blocks.Block {
+	t.Helper()
+
+	data := Bytes(t, size.ToInt64())
+	mh, err := multihash.Sum(data, multihash.SHA2_256, -1)
+	require.NoError(t, err)
+	c := cid.NewCidV1(cid.DagProtobuf, mh)
+	block, err := blocks.NewBlockWithCid(data, c)
+	require.NoError(t, err)
+	return block
 }

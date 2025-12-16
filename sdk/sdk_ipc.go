@@ -23,7 +23,6 @@ import (
 	"github.com/ipfs/go-cid"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"golang.org/x/sync/errgroup"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -40,10 +39,10 @@ import (
 // IPC exposes SDK ipc API.
 type IPC struct {
 	client     pb.IPCNodeAPIClient
-	conn       *grpc.ClientConn
 	ipc        *ipc.Client
 	httpClient *http.Client
 	ec         *erasurecode.ErasureCode
+	pool       *connectionPool
 
 	privateKey            string
 	chainID               *big.Int
@@ -468,13 +467,6 @@ func (sdk *IPC) Upload(ctx context.Context, fileUpload *IPCFileUpload, reader io
 	fileUploadChunksCh := make(chan IPCFileChunkUploadV2)
 	waitTransactionsCh := make(chan BatchTransaction, sdk.chunkBuffer)
 
-	pool := newConnectionPool()
-	defer func() {
-		if err := pool.close(); err != nil {
-			slog.Warn("failed to close connection", slog.String("error", err.Error()))
-		}
-	}()
-
 	// Start goroutine for reading data and creating chunks
 	g.Go(func() error {
 		defer close(waitTransactionsCh)
@@ -632,7 +624,7 @@ func (sdk *IPC) Upload(ctx context.Context, fileUpload *IPCFileUpload, reader io
 					return nil
 				}
 
-				if err := sdk.uploadChunk(chunkCtx, chunkUpload, pool, fileUpload.blocksCounter, fileUpload.bytesCounter, isContinuation); err != nil {
+				if err := sdk.uploadChunk(chunkCtx, chunkUpload, fileUpload.blocksCounter, fileUpload.bytesCounter, isContinuation); err != nil {
 					return err
 				}
 
@@ -825,7 +817,7 @@ func (sdk *IPC) createChunkUpload(ctx context.Context, index int64, fileEncrypti
 	}, nil
 }
 
-func (sdk *IPC) uploadChunk(ctx context.Context, fileChunkUpload IPCFileChunkUploadV2, pool *connectionPool, blockCount, bytesCount *atomic.Int64, isResuming bool) (err error) {
+func (sdk *IPC) uploadChunk(ctx context.Context, fileChunkUpload IPCFileChunkUploadV2, blockCount, bytesCount *atomic.Int64, isResuming bool) (err error) {
 	defer mon.Task()(&ctx, fileChunkUpload)(&err)
 
 	g, ctx := errgroup.WithContext(ctx)
@@ -869,7 +861,7 @@ func (sdk *IPC) uploadChunk(ctx context.Context, fileChunkUpload IPCFileChunkUpl
 			})
 			defer timer.Stop()
 
-			client, closer, err := pool.createIPCClient(block.NodeAddress, sdk.useConnectionPool)
+			client, closer, err := sdk.pool.createIPCClient(block.NodeAddress, sdk.useConnectionPool)
 			if err != nil {
 				return err
 			}
@@ -1198,7 +1190,6 @@ func (sdk *IPC) Download(ctx context.Context, fileDownload IPCFileDownload, writ
 
 				err = sdk.downloadChunkBlocks(
 					ctx,
-					pool,
 					fileDownload.BucketName,
 					fileDownload.Name,
 					sdk.ipc.Auth.From.String(),
@@ -1227,13 +1218,6 @@ func (sdk *IPC) DownloadArchival(ctx context.Context, fileDownload IPCFileDownlo
 	if err != nil {
 		return errSDK.Wrap(err)
 	}
-
-	pool := newConnectionPool()
-	defer func() {
-		if err := pool.close(); err != nil {
-			slog.Warn("failed to close connection", slog.String("error", err.Error()))
-		}
-	}()
 
 	g, ctx := errgroup.WithContext(ctx)
 	chunkDownloadCh := make(chan FileChunkDownload, sdk.chunkBuffer)
@@ -1276,7 +1260,6 @@ func (sdk *IPC) DownloadArchival(ctx context.Context, fileDownload IPCFileDownlo
 
 				err = sdk.downloadChunkBlocks2(
 					ctx,
-					pool,
 					chunkDownload,
 					fileEncKey,
 					writer,
@@ -1322,13 +1305,6 @@ func (sdk *IPC) ArchivalMetadata(ctx context.Context, bucketName, fileName strin
 		Chunks:     make([]ArchivalChunk, 0, len(res.Chunks)),
 	}
 
-	pool := newConnectionPool()
-	defer func() {
-		if closeErr := pool.close(); closeErr != nil {
-			err = errors.Join(err, closeErr)
-		}
-	}()
-
 	type resolvedBlock struct {
 		Pos     int
 		CID     string
@@ -1370,7 +1346,7 @@ func (sdk *IPC) ArchivalMetadata(ctx context.Context, bucketName, fileName strin
 			}
 
 			g.Go(func() error {
-				pdpBlock, err := sdk.resolveBlock(gctx, pool, FileBlockDownload{
+				pdpBlock, err := sdk.resolveBlock(gctx, FileBlockDownload{
 					CID:         block.Cid,
 					NodeAddress: block.NodeAddress,
 				})
@@ -1445,7 +1421,6 @@ func (sdk *IPC) createChunkDownload(ctx context.Context, bucketName, fileName st
 
 func (sdk *IPC) downloadChunkBlocks(
 	ctx context.Context,
-	pool *connectionPool,
 	bucketName, fileName, address string,
 	chunkDownload FileChunkDownload,
 	fileEncryptionKey []byte,
@@ -1471,7 +1446,7 @@ func (sdk *IPC) downloadChunkBlocks(
 		g.Go(func() (err error) {
 			defer mon.TaskNamed("(*IPC).downloadBlock")(&deriveCtx, block.CID)(&err)
 
-			blockData, err := sdk.fetchBlockData(ctx, pool, chunkDownload.CID, bucketName, fileName, address, chunkDownload.Index, int64(i), block)
+			blockData, err := sdk.fetchBlockData(ctx, chunkDownload.CID, bucketName, fileName, address, chunkDownload.Index, int64(i), block)
 			if err != nil {
 				return err
 			}
@@ -1529,7 +1504,6 @@ func (sdk *IPC) downloadChunkBlocks(
 // downloadChunkBlocks2 resolves all chunk block references and download blocks strictly from PDP provider.
 func (sdk *IPC) downloadChunkBlocks2(
 	ctx context.Context,
-	pool *connectionPool,
 	chunkDownload FileChunkDownload,
 	fileEncryptionKey []byte,
 	writer io.Writer,
@@ -1554,7 +1528,7 @@ func (sdk *IPC) downloadChunkBlocks2(
 		g.Go(func() (err error) {
 			defer mon.TaskNamed("(*IPC).downloadBlock2")(&deriveCtx, block.CID)(&err)
 
-			pdpBlock, err := sdk.resolveBlock(ctx, pool, block)
+			pdpBlock, err := sdk.resolveBlock(ctx, block)
 			if err != nil {
 				return err
 			}
@@ -1624,10 +1598,10 @@ func (sdk *IPC) downloadChunkBlocks2(
 }
 
 // resolveBlock resolves block metadata from PDP provider.
-func (sdk *IPC) resolveBlock(ctx context.Context, pool *connectionPool, block FileBlockDownload) (_ PDPBlockData, err error) {
+func (sdk *IPC) resolveBlock(ctx context.Context, block FileBlockDownload) (_ PDPBlockData, err error) {
 	defer mon.Task()(&ctx, block.CID)(&err)
 
-	client, closer, err := pool.createArchivalClient(block.NodeAddress, sdk.useConnectionPool)
+	client, closer, err := sdk.pool.createArchivalClient(block.NodeAddress, sdk.useConnectionPool)
 	if err != nil {
 		return PDPBlockData{}, err
 	}
@@ -1658,7 +1632,6 @@ func (sdk *IPC) resolveBlock(ctx context.Context, pool *connectionPool, block Fi
 
 func (sdk *IPC) fetchBlockData(
 	ctx context.Context,
-	pool *connectionPool,
 	chunkCID, bucketName, fileName, address string,
 	chunkIndex, blockIdndex int64,
 	block FileBlockDownload,
@@ -1668,7 +1641,7 @@ func (sdk *IPC) fetchBlockData(
 		return nil, errMissingBlockMetadata
 	}
 
-	client, closer, err := pool.createIPCClient(block.NodeAddress, sdk.useConnectionPool)
+	client, closer, err := sdk.pool.createIPCClient(block.NodeAddress, sdk.useConnectionPool)
 	if err != nil {
 		return nil, err
 	}

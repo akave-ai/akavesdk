@@ -4,7 +4,7 @@ The **Akave SDK CLI** (`akavesdk`) is a command-line tool designed to streamline
 
 Whether you're building a new integration or managing data across nodes, this SDK provides robust capabilities to help you achieve seamless, scalable storage solutions.
 
-```Base commit: tag v0.4.0```.
+```Base commit: tag v0.4.4```.
 
 ## Build and test instructions
 Requirements: Go 1.25+
@@ -12,113 +12,6 @@ Requirements: Go 1.25+
 `make build` - outputs a cli binary into `bin/akavecli`.<br>
 `make test` - runs tests.<br>
 Look at `Makefile` for details.
-
-# Akave Node API
-
-The Akave Node API provides a set of gRPC services for interacting with the Akave node. Below is a description of the model and available functions.
-
-### Metadata model
-#### Bucket model
-- unique identifier for a bucket
-    ```go
-    type ID [32]byte
-    ```
-- bucket metadata
-    ```go
-    type Bucket struct {
-      ID        ID
-      Name      string
-      CreatedAt time.Time
-    }
-    ```
-
-#### File model
-- content identifier for files, chunks and blocks
-    ```go
-    type CID string
-    ```
-- unique key to identify a file in the store
-    ```go
-    type FileID struct {
-      BucketID buckets.ID
-      Name     string
-    }
-    ```
-- file metadata of a streaming file
-    ```go
-    type FileMeta struct {
-      FileID
-
-      StreamID    uuid.UUID
-      RootCID     CID
-      Size        int64
-      CreatedAt   time.Time
-      CommittedAt time.Time
-    }
-    ```
-- streaming file model: metadata + chunks it is made of
-    ```go
-    type FileV2 struct {
-      FileMeta
-
-      Chunks []ChunkMeta
-    }
-    ```
-- chunk metadata
-    ```go
-    type ChunkMeta struct {
-      CID  CID
-      Size int64
-    }
-    ```
-- chunk metadata with blocks
-    ```go
-    type Chunk struct {
-      ChunkMeta
-      Blocks []Block
-    }
-    ```
-- block metadata
-    ```go
-    type Block struct {
-      CID  CID
-      Size int64
-    }
-    ```
-
-### Bucket API
-
-| Endpoint       | Description                                                                                                                                         |
-|----------------|-----------------------------------------------------------------------------------------------------------------------------------------------------|
-| `BucketCreate` | Creates a new bucket. The request sent on a node creates a bucket on this node and shares the fact of creation with all other nodes in the network. |
-| `BucketView`   | Retrieves details of a specific bucket.                                                                                                             |
-| `BucketList`   | Lists all buckets in the network.                                                                                                                   |
-| `BucketDelete` | Deletes a specific bucket. Fact of deletion is shared among all nodes in network. For now, only *soft delete* is implemented.                       |
-
-### Streaming File API
-
-In streaming API file is split into chunks of 32 MB max size where each chunk contains blocks with data(max size of a block is 1 MB).
-SDK, when reading the file, attempts to read at most 32 MB as 1 read operation from the source, then builds a DAG for chunk where root CID of a DAG is chunk CID.
-Then SDK creates an upload receipt of the chunk using `FileUploadChunkCreate` api endpoint. Receipt describes where each block should be uploaded to,
-as upload of blocks is performed simultaneously on multiple akave nodes. Once the chunk is fully uploaded, the process repeats for other chunks, until the file is fully read.
-After that SDK performs "commit" operation(using `FileUploadCommit` endpoint), signaling akave nodes, that upload of given file has finished and passing file root CID.
-File root CID is calculated incrementally using chunk CIDs.
-
-
-| Endpoint                  | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-|---------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `FileUploadCreate`        | Initiates a file upload. Creates a unique stream-id for the file and stores it together with file data (e.g. fileName, bucket, creation_date). Shares the fact of such storing among all nodes in the network. This unique stream-id is used by the client in further requests.                                                                                                                                                                                                                                            |
-| `FileUploadChunkCreate`   | Stores the given chunk (cid, size and blocks metadata) and returns the receipt where each block should be uploaded to. Also shares the fact of storing the chunk among all nodes in the network.                                                                                                                                                                                                                                                                                                                           |
-| `FileUploadBlock`         | Uploads the given block (block's data) via grpc streaming to the node address. Node stores information about peer ID of a node which now has this block and stores it on smart contract. |
-| `FileUploadCommit`        | Signals that upload operation is completed providing akave node with file's **root_cid**. Before this operation the file is "invisible": you can't get info about it or download it. After this operation you can't upload more blocks or chunks to this file.                                                                                                                                                                                                                                                             |
-| `FileDownloadCreate`      | Initiates file download. Fetches the file's metadata and its breakdown on chunks: list of chunks this file is made of.                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `FileDownloadChunkCreate` | Creates the "download receipt" for a chunk: list of blocks this chunk is made of and from where each block can be downloaded from.                                                                                                                                                                                                                                                                                                                                                                                         |
-| `FileDownloadBlock`       | Downloads the block via grpc streaming from a node which address is taken from the response to **FileDownloadChunkCreate**.                                                                                                                                                                                                                                                                                                                                                                                                |
-| `FileList`                | Lists all the files in the given bucket. Only file metadata is returned.                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `FileView`                | Fetches the metadata of one particular file.                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `FileDelete`              | "Soft" deletes the file in a block. The node also shares the information about this operation among all nodes in a network.                                                                                                                                                                                                                                                                                                                                                                                                |
-
-> NOTE: Sharing among nodes functionality uses libp2p pubsub. "Soft" deletes means marking an object with delete flag in db table.
 
 ### Akave Node IPC API
 
@@ -215,24 +108,6 @@ Used in IPC endpoint FileDownloadCreate.
 <br>
 
 # SDK
-
-### SDK API
-
-| Function Name        | Description                                                                                                                                                   |
-|----------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `New`                | Creates a new instance of the SDK client                                                                                                                      |
-| `CreateBucket`       | Creates a new bucket with the specified name                                                                                                                  |
-| `ViewBucket`         | Retrieves details of a specific bucket by its name                                                                                                            |
-| `ListBuckets`        | Lists all buckets available in the network                                                                                                                    |
-| `DeleteBucket`       | "Soft" Deletes a specific bucket by its name                                                                                                                  |
-| `StreamingAPI`       | Returns sdk instance that works with streaming file api                                                                                                       |
-| `ListFiles`          | Lists all streamed files in a specified bucket.                                                                                                               |
-| `FileInfo`           | Retrieves metadata of a specific streamed file by its name and bucket                                                                                         |
-| `CreateFileUpload`   | Initiates a file upload to a specified bucket by creating file's stream-id                                                                                    |
-| `Upload`             | Uploads file's data to a file identified by stream-id. Splits file on chunks and performs chunk upload to different nodes                                     |
-| `CreateFileDownload` | Initiates a file download from a specified bucket. Gets a receipt that describes which chunks the file consists of                                            |
-| `Download`           | Using the receipt returned from `CreateFileDownload` endpoint downloads the file sequentially by chunks. Fetches peer block addresses of blocks of each chunk |
-| `FileDelete`         | Soft deletes a specific file by its name and bucket id                                                                                                        |
 
 ### SDK DAG utilities
 - `ChunkDAG` a struct that contains node's(in context of a DAG) metainformation: CID, sizes, block metadata

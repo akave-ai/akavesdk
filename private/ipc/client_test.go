@@ -149,15 +149,15 @@ func TestContracts(t *testing.T) {
 	require.Equal(t, rootCID.Bytes(), file.FileCID)
 	require.Equal(t, int64(32), file.EncodedSize.Int64())
 
-	policyFactory, err := client.DeployListPolicy(ctx, client.Auth.From)
+	listPolicy, err := client.TestDeployListPolicy(ctx, client.Auth.From)
 	require.NoError(t, err)
-	require.NotNil(t, policyFactory)
+	require.NotNil(t, listPolicy)
 
-	tx, err = policyFactory.AssignRole(client.Auth, address)
+	tx, err = listPolicy.AssignRole(client.Auth, address)
 	require.NoError(t, err)
 	require.NoError(t, client.WaitForTx(ctx, tx.Hash()))
 
-	isValid, err := policyFactory.ValidateAccess(&bind.CallOpts{Context: ctx}, address, nil)
+	isValid, err := listPolicy.ValidateAccess(&bind.CallOpts{Context: ctx}, address, nil)
 	require.NoError(t, err)
 	require.True(t, isValid)
 
