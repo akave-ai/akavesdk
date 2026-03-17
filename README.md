@@ -208,3 +208,20 @@ Disable erasure coding flag `disable-erasure-coding` ensures that file is not er
   ```sh
   akavecli wallet balance
   ```
+
+## Troubleshooting
+
+### Build fails: `make: *** No rule to make target '#'. Stop.`
+This error occurs when build commands contain inline comments that are copied as part of the command. Copy only the command itself (e.g., `make build`) without any trailing `# comment` text.
+
+### `connection refused` or `dial tcp ... connect: connection refused`
+The `--node-address` flag must point to a running Akave node. Verify the node is running and reachable at the specified address and port (default: `127.0.0.1:5000`).
+
+### `invalid private key` or transaction signing errors
+Private keys must be provided as raw hex strings (without `0x` prefix). For example: `--private-key="abc123..."`. Keys exported from MetaMask typically include the `0x` prefix — remove it before use.
+
+### File upload hangs or times out on large files
+Large file uploads may take significant time depending on network conditions. Uploads are split into blocks — ensure you have a stable network connection. See the [network performance guidance](https://docs.akave.ai) for recommendations.
+
+### Go version mismatch
+This project requires Go 1.25+. Run `go version` to check your installed version. If you have an older version, follow the installation steps in the [Build and test instructions](#build-and-test-instructions) section above.
