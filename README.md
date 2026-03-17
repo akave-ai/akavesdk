@@ -4,6 +4,8 @@ The **Akave SDK CLI** (`akavesdk`) is a command-line tool designed to streamline
 
 Whether you're building a new integration or managing data across nodes, this SDK provides robust capabilities to help you achieve seamless, scalable storage solutions.
 
+For full documentation including the Blockchain Integrated SDK guide, visit: https://docs.akave.ai/akave-sdk-cli/blockchain-integrated
+
 ```Base commit: tag v0.4.4```.
 
 ## Build and test instructions
