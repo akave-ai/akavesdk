@@ -257,12 +257,12 @@ func cmdCreateBucket(cmd *cobra.Command, args []string) (err error) {
 	defer mon.Task()(&ctx, args)(&err)
 	bucketName := args[0]
 
-	sdkOptions, err := defaultSDKOptions(cmd)
+	privateKey, sdkOptions, err := defaultParameters(cmd)
 	if err != nil {
 		return err
 	}
 
-	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool, sdkOptions...)
+	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, privateKey, sdkOptions...)
 	if err != nil {
 		return err
 	}
@@ -292,12 +292,12 @@ func cmdDeleteBucket(cmd *cobra.Command, args []string) (err error) {
 	defer mon.Task()(&ctx, args)(&err)
 	bucketName := args[0]
 
-	sdkOptions, err := defaultSDKOptions(cmd)
+	privateKey, sdkOptions, err := defaultParameters(cmd)
 	if err != nil {
 		return err
 	}
 
-	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool, sdkOptions...)
+	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, privateKey, sdkOptions...)
 	if err != nil {
 		return err
 	}
@@ -327,12 +327,12 @@ func cmdViewBucket(cmd *cobra.Command, args []string) (err error) {
 	defer mon.Task()(&ctx, args)(&err)
 	bucketName := args[0]
 
-	sdkOptions, err := defaultSDKOptions(cmd)
+	privateKey, sdkOptions, err := defaultParameters(cmd)
 	if err != nil {
 		return err
 	}
 
-	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool, sdkOptions...)
+	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, privateKey, sdkOptions...)
 	if err != nil {
 		return err
 	}
@@ -361,12 +361,12 @@ func cmdListBuckets(cmd *cobra.Command, args []string) (err error) {
 	ctx := cmd.Context()
 	defer mon.Task()(&ctx, args)(&err)
 
-	sdkOptions, err := defaultSDKOptions(cmd)
+	privateKey, sdkOptions, err := defaultParameters(cmd)
 	if err != nil {
 		return err
 	}
 
-	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool, sdkOptions...)
+	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, privateKey, sdkOptions...)
 	if err != nil {
 		return err
 	}
@@ -402,12 +402,12 @@ func cmdListFiles(cmd *cobra.Command, args []string) (err error) {
 	defer mon.Task()(&ctx, args)(&err)
 	bucketName := args[0]
 
-	sdkOptions, err := defaultSDKOptions(cmd)
+	privateKey, sdkOptions, err := defaultParameters(cmd)
 	if err != nil {
 		return err
 	}
 
-	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool, sdkOptions...)
+	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, privateKey, sdkOptions...)
 	if err != nil {
 		return err
 	}
@@ -444,12 +444,12 @@ func cmdFileInfo(cmd *cobra.Command, args []string) (err error) {
 	bucketName := args[0]
 	fileName := args[1]
 
-	sdkOptions, err := defaultSDKOptions(cmd)
+	privateKey, sdkOptions, err := defaultParameters(cmd)
 	if err != nil {
 		return err
 	}
 
-	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool, sdkOptions...)
+	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, privateKey, sdkOptions...)
 	if err != nil {
 		return err
 	}
@@ -496,13 +496,15 @@ func cmdFileUpload(cmd *cobra.Command, args []string) (err error) {
 		return fmt.Errorf("failed to get file info: %w", err)
 	}
 
-	sdkOpts, err := defaultSDKOptions(cmd)
+	privateKey, sdkOpts, err := defaultParameters(cmd)
 	if err != nil {
 		return err
 	}
 	sdkOpts = append(sdkOpts, sdk.WithErasureCoding(parityBlocks()))
+	sdkOpts = append(sdkOpts, sdk.WithChunkBuffer(chunkBuffer))
+	sdkOpts = append(sdkOpts, sdk.WithChunkBatchSize(chunkBatch))
 
-	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool, sdkOpts...)
+	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, privateKey, sdkOpts...)
 	if err != nil {
 		return err
 	}
@@ -556,13 +558,14 @@ func cmdFileDownload(cmd *cobra.Command, args []string) (err error) {
 	fileName := args[1]
 	destPath := args[2]
 
-	sdkOpts, err := defaultSDKOptions(cmd)
+	privateKey, sdkOpts, err := defaultParameters(cmd)
 	if err != nil {
 		return err
 	}
 	sdkOpts = append(sdkOpts, sdk.WithErasureCoding(parityBlocks()))
+	sdkOpts = append(sdkOpts, sdk.WithChunkBuffer(chunkBuffer))
 
-	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool, sdkOpts...)
+	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, privateKey, sdkOpts...)
 	if err != nil {
 		return err
 	}
@@ -631,13 +634,13 @@ func cmdFileDelete(cmd *cobra.Command, args []string) (err error) {
 	bucketName := args[0]
 	fileName := args[1]
 
-	sdkOpts, err := defaultSDKOptions(cmd)
+	privateKey, sdkOpts, err := defaultParameters(cmd)
 	if err != nil {
 		return err
 	}
 	sdkOpts = append(sdkOpts, sdk.WithErasureCoding(parityBlocks()))
 
-	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool, sdkOpts...)
+	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, privateKey, sdkOpts...)
 	if err != nil {
 		return err
 	}
@@ -666,12 +669,12 @@ func cmdArchivalMetadata(cmd *cobra.Command, args []string) (err error) {
 
 	bucketName, fileName := args[0], args[1]
 
-	sdkOptions, err := defaultSDKOptions(cmd)
+	privateKey, sdkOptions, err := defaultParameters(cmd)
 	if err != nil {
 		return err
 	}
 
-	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, useConnectionPool, sdkOptions...)
+	akaveSDK, err := sdk.New(nodeRPCAddress, maxConcurrency, blockPartSize, privateKey, sdkOptions...)
 	if err != nil {
 		return err
 	}
@@ -758,24 +761,23 @@ func getWalletPrivateKey(cmd *cobra.Command) (privKey string, err error) {
 	return privKey, err
 }
 
-// defaultSDKOptions constructs the default SDK options based on CLI flags.
-func defaultSDKOptions(cmd *cobra.Command) ([]sdk.Option, error) {
+// defaultParameters constructs the default parameters based on CLI flags.
+func defaultParameters(cmd *cobra.Command) (string, []sdk.Option, error) {
 	privateKey, err := getWalletPrivateKey(cmd)
 	if err != nil {
-		return nil, err
+		return "", nil, err
 	}
 
 	var encryptionKeyBytes []byte
 	if encryptionKey != "" {
 		decodedKey, err := hex.DecodeString(encryptionKey)
 		if err != nil {
-			return nil, fmt.Errorf("failed to decode encryption key: %w", err)
+			return "", nil, fmt.Errorf("failed to decode encryption key: %w", err)
 		}
 		encryptionKeyBytes = decodedKey
 	}
 
 	opts := []sdk.Option{
-		sdk.WithPrivateKey(privateKey),
 		sdk.WithEncryptionKey(encryptionKeyBytes),
 	}
 
@@ -783,5 +785,5 @@ func defaultSDKOptions(cmd *cobra.Command) ([]sdk.Option, error) {
 		opts = append(opts, sdk.WithMetadataEncryption())
 	}
 
-	return opts, nil
+	return privateKey, opts, nil
 }

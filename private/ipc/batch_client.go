@@ -63,6 +63,7 @@ func (bc *BatchClient) GetTransactionReceiptsBatch(ctx context.Context, requests
 	batchCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	// TODO: use private/retry here
 	if err := bc.client.BatchCallContext(batchCtx, batchReqs); err != nil {
 		return nil, err
 	}

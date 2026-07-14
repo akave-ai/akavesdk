@@ -7,15 +7,22 @@ package erasurecode
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 
 	"github.com/klauspost/reedsolomon"
 	"github.com/zeebo/errs/v2"
 )
 
-var magicSuffix = []byte{0xDE, 0xAD, 0xBE, 0xEF}
+const prefix = 8
 
-var erasureCodeErr = errs.Tag("erasure coding")
+var (
+	erasureCodeErr = errs.Tag("erasure coding")
+	magicSuffix    = []byte{0xDE, 0xAD, 0xBE, 0xEF}
+
+	// WrapOverhead is the number of extra bytes added to data when wrapping it for erasure coding.
+	WrapOverhead = prefix + len(magicSuffix)
+)
 
 // ErasureCode is a wrapper around the reedsolomon.Encoder type, providing a more user-friendly interface.
 type ErasureCode struct {
@@ -59,56 +66,131 @@ func (e *ErasureCode) Encode(data []byte) ([]byte, error) {
 	return result, nil
 }
 
-// ReconstructAll reconstructs all missing blocks using Reed-Solomon erasure coding.
-func (e *ErasureCode) ReconstructAll(blocks [][]byte) error {
-	return erasureCodeErr.Wrap(e.enc.Reconstruct(blocks))
-}
-
 // ExtractData extracts the original data from the encoded data using Reed-Solomon erasure coding.
-// TODO: remove doUnwrap once migration is completed.
-func (e *ErasureCode) ExtractData(blocks [][]byte, originalSize int) ([]byte, error) {
-	ok, _ := e.enc.Verify(blocks)
-	if !ok {
-		if err := e.enc.ReconstructData(blocks); err != nil {
+func (e *ErasureCode) ExtractData(blocks [][]byte) ([]byte, error) {
+	ok, err := e.enc.Verify(blocks)
+	if err != nil {
+		// Only proceed with reconstruction if the error is exactly ErrShardSize, which may indicate nil shards
+		if !errors.Is(err, reedsolomon.ErrShardSize) {
+			return nil, erasureCodeErr.Wrap(err)
+		}
+
+		if err := e.enc.Reconstruct(blocks); err != nil {
+			return nil, erasureCodeErr.Wrap(err)
+		}
+
+		// check if data is corrupted after reconstruction
+		// because data may be corrupted and contain nil shards, which can be reconstructed but still be corrupted
+		ok, err = e.enc.Verify(blocks)
+		if err != nil {
 			return nil, erasureCodeErr.Wrap(err)
 		}
 	}
 
-	var buf bytes.Buffer
+	if !ok {
+		return nil, erasureCodeErr.Wrap(errors.New("data is corrupted"))
+	}
+
 	// at this point, blocks are all reconstructed or valid, so it's safe to take length of 1st
 	outSize := e.DataBlocks * len(blocks[0])
-	if originalSize > 0 {
-		outSize = originalSize
-	}
+
+	var buf bytes.Buffer
+	buf.Grow(outSize)
+
 	if err := e.enc.Join(&buf, blocks, outSize); err != nil {
 		return nil, erasureCodeErr.Wrap(err)
 	}
 
-	if originalSize == 0 {
-		return unwrapData(buf.Bytes())
+	return unwrapData(buf.Bytes())
+}
+
+// EncodeRaw encodes the input data using Reed-Solomon erasure coding without wrapping.
+func (e *ErasureCode) EncodeRaw(data []byte) ([][]byte, error) {
+	shards, err := e.enc.Split(data)
+	if err != nil {
+		return nil, erasureCodeErr.Wrap(err)
+	}
+
+	if err := e.enc.Encode(shards); err != nil {
+		return nil, erasureCodeErr.Wrap(err)
+	}
+
+	return shards, nil
+}
+
+// ExtractDataRaw extracts the original data from encoded shards without unwrapping.
+// originalSize must be the exact byte count of the data passed to EncodeRaw.
+func (e *ErasureCode) ExtractDataRaw(blocks [][]byte, originalSize int) ([]byte, error) {
+	ok, err := e.enc.Verify(blocks)
+	if err != nil {
+		// Only proceed with reconstruction if the error is exactly ErrShardSize, which may indicate nil shards
+		if !errors.Is(err, reedsolomon.ErrShardSize) {
+			return nil, erasureCodeErr.Wrap(err)
+		}
+
+		if err := e.enc.Reconstruct(blocks); err != nil {
+			return nil, erasureCodeErr.Wrap(err)
+		}
+
+		// check if data is corrupted after reconstruction
+		// because data may be corrupted and contain nil shards, which can be reconstructed but still be corrupted
+		ok, err = e.enc.Verify(blocks)
+		if err != nil {
+			return nil, erasureCodeErr.Wrap(err)
+		}
+	}
+
+	if !ok {
+		return nil, erasureCodeErr.Wrap(errors.New("data is corrupted"))
+	}
+
+	// at this point, blocks are all reconstructed or valid, so it's safe to take length of 1st
+	outSize := e.DataBlocks * len(blocks[0])
+
+	var buf bytes.Buffer
+	buf.Grow(outSize)
+
+	if err := e.enc.Join(&buf, blocks, outSize); err != nil {
+		return nil, erasureCodeErr.Wrap(err)
 	}
 
 	return buf.Bytes(), nil
 }
 
+// ReconstructAll reconstructs all missing blocks using Reed-Solomon erasure coding.
+func (e *ErasureCode) ReconstructAll(blocks [][]byte) error {
+	return erasureCodeErr.Wrap(e.enc.Reconstruct(blocks))
+}
+
+// wrapData wraps data with size prefix and magic suffix.
+// It requires the input slice to have sufficient capacity (cap(data) >= len(data) + WrapOverhead).
+// Otherwise, it allocates a new slice.
 func wrapData(data []byte) []byte {
-	size := uint64(len(data))
-	buf := make([]byte, 8+len(data)+len(magicSuffix))
-	binary.BigEndian.PutUint64(buf[:8], size)
-	copy(buf[8:], data)
-	copy(buf[8+len(data):], magicSuffix)
+	dataLen := len(data)
+	requiredLen := dataLen + WrapOverhead
+
+	var buf []byte
+	if cap(data) >= requiredLen {
+		buf = data[:requiredLen]
+		copy(buf[prefix:prefix+dataLen], data)
+	} else {
+		buf = make([]byte, requiredLen)
+		copy(buf[prefix:], data)
+	}
+
+	binary.BigEndian.PutUint64(buf[:prefix], uint64(dataLen))
+	copy(buf[prefix+dataLen:], magicSuffix)
 	return buf
 }
 
 func unwrapData(buf []byte) ([]byte, error) {
 	unwrapDataErr := fmt.Errorf("buffer too short")
 
-	if len(buf) < 8+len(magicSuffix) {
+	if len(buf) < WrapOverhead {
 		return nil, unwrapDataErr
 	}
-	size := binary.BigEndian.Uint64(buf[:8])
-	dataStart := 8
-	dataEnd := dataStart + int(size)
+	size := binary.BigEndian.Uint64(buf[:prefix])
+	dataEnd := prefix + int(size)
 
 	n := dataEnd + len(magicSuffix)
 
@@ -119,5 +201,5 @@ func unwrapData(buf []byte) ([]byte, error) {
 	if !bytes.Equal(buf[dataEnd:n], magicSuffix) {
 		return nil, fmt.Errorf("missing suffix or corrupted data")
 	}
-	return buf[dataStart:dataEnd], nil
+	return buf[prefix:dataEnd], nil
 }

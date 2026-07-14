@@ -6,6 +6,7 @@ package ipc
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"math/big"
 	"time"
@@ -15,7 +16,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/zeebo/errs"
 
 	"github.com/akave-ai/akavesdk/private/ipc/contracts"
 )
@@ -62,6 +62,8 @@ type Client struct {
 
 // ContractsAddresses contains addresses of deployed contracts.
 type ContractsAddresses struct {
+	Token         string
+	StorageImpl   string
 	Storage       string
 	AccessManager string
 }
@@ -114,13 +116,13 @@ func Dial(ctx context.Context, config Config) (*Client, error) {
 }
 
 // DeployContracts deploys smart contracts, returns client.
-func DeployContracts(ctx context.Context, config Config) (*Client, error) {
-	ethClient, err := ethclient.Dial(config.DialURI)
+func DeployContracts(ctx context.Context, dialURI, privateKeyHex string) (*Client, error) {
+	ethClient, err := ethclient.Dial(dialURI)
 	if err != nil {
 		return &Client{}, err
 	}
 
-	privateKey, err := crypto.HexToECDSA(config.PrivateKey)
+	privateKey, err := crypto.HexToECDSA(privateKeyHex)
 	if err != nil {
 		return &Client{}, err
 	}
@@ -150,6 +152,8 @@ func DeployContracts(ctx context.Context, config Config) (*Client, error) {
 		return &Client{}, err
 	}
 
+	client.Addresses.Token = akaveTokenAddr.String()
+
 	storageImplAddress, tx, _, err := contracts.DeployStorage(auth, ethClient)
 	if err != nil {
 		return &Client{}, err
@@ -157,6 +161,8 @@ func DeployContracts(ctx context.Context, config Config) (*Client, error) {
 	if err := client.WaitForTx(ctx, tx.Hash()); err != nil {
 		return &Client{}, err
 	}
+
+	client.Addresses.StorageImpl = storageImplAddress.String()
 
 	storageABI, err := contracts.StorageMetaData.GetAbi()
 	if err != nil {
@@ -225,6 +231,74 @@ func DeployContracts(ctx context.Context, config Config) (*Client, error) {
 	return client, nil
 }
 
+// UpgradeStorage deploys a new Storage implementation and upgrades the existing Storage proxy
+// (ERC1967/UUPS) to point to it.
+//
+// The proxy address is provided as proxyAddr parameter.
+// Existing state remains in the proxy storage and will be visible to the new implementation.
+// It is assumed that generated code used in this function belongs to a new version of the Storage contract.
+func UpgradeStorage(ctx context.Context, dialURI, privateKey, proxyAddr, callDataHex string) (common.Address, error) {
+	ethClient, err := ethclient.Dial(dialURI)
+	if err != nil {
+		return common.Address{}, err
+	}
+	defer ethClient.Close()
+
+	privateKeyECDSA, err := crypto.HexToECDSA(privateKey)
+	if err != nil {
+		return common.Address{}, err
+	}
+
+	chainID, err := ethClient.ChainID(ctx)
+	if err != nil {
+		return common.Address{}, err
+	}
+
+	auth, err := bind.NewKeyedTransactorWithChainID(privateKeyECDSA, chainID)
+	if err != nil {
+		return common.Address{}, err
+	}
+	auth.Context = ctx
+
+	ipcClient := &Client{
+		Eth:     ethClient,
+		chainID: chainID,
+	}
+
+	storageProxy, err := contracts.NewStorage(common.HexToAddress(proxyAddr), ethClient)
+	if err != nil {
+		return common.Address{}, err
+	}
+
+	newImplementationAddr, deployTx, _, err := contracts.DeployStorage(auth, ethClient)
+	if err != nil {
+		return common.Address{}, err
+	}
+
+	if err := ipcClient.WaitForTx(ctx, deployTx.Hash()); err != nil {
+		return common.Address{}, err
+	}
+
+	var callData []byte
+	if callDataHex != "" {
+		callData, err = hex.DecodeString(callDataHex)
+		if err != nil {
+			return common.Address{}, err
+		}
+	}
+
+	upgradeTx, err := storageProxy.UpgradeToAndCall(auth, newImplementationAddr, callData)
+	if err != nil {
+		return common.Address{}, err
+	}
+
+	if err := ipcClient.WaitForTx(ctx, upgradeTx.Hash()); err != nil {
+		return common.Address{}, err
+	}
+
+	return newImplementationAddr, nil
+}
+
 // ChainID returns chain id.
 func (client *Client) ChainID() *big.Int {
 	return client.chainID
@@ -264,7 +338,7 @@ func (client *Client) WaitForTx(ctx context.Context, hash common.Hash) error {
 			return nil
 		}
 
-		return errs.New("transaction failed")
+		return errors.New("transaction failed")
 	}
 	if !errors.Is(err, ethereum.NotFound) {
 		return err
@@ -284,7 +358,7 @@ func (client *Client) WaitForTx(ctx context.Context, hash common.Hash) error {
 					return nil
 				}
 
-				return errs.New("transaction failed")
+				return errors.New("transaction failed")
 			}
 			if !errors.Is(err, ethereum.NotFound) {
 				return err

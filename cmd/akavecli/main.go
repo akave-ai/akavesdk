@@ -44,11 +44,12 @@ var (
 	encryptionKey         string
 	maxConcurrency        int
 	blockPartSize         int64
-	useConnectionPool     bool
 	disableErasureCoding  bool
 	enableSDKMonkitStats  bool
 	accountName           string
 	useMetadataEncryption bool
+	chunkBuffer           int
+	chunkBatch            int
 
 	// tracing.
 	mon = monkit.Package()
@@ -101,9 +102,8 @@ func main() {
 
 func initFlags() {
 	rootCmd.PersistentFlags().StringVar(&nodeRPCAddress, "node-address", "127.0.0.1:5000", "The address of the node RPC")
-	rootCmd.PersistentFlags().IntVar(&maxConcurrency, "maxConcurrency", 10, "Maximum concurrency level")
+	rootCmd.PersistentFlags().IntVar(&maxConcurrency, "maxConcurrency", 32, "Maximum concurrency level")
 	rootCmd.PersistentFlags().Int64Var(&blockPartSize, "blockPartSize", (memory.KiB * 128).ToInt64(), "Size of each block part")
-	rootCmd.PersistentFlags().BoolVar(&useConnectionPool, "useConnectionPool", true, "Use connection pool")
 	rootCmd.PersistentFlags().BoolVar(&enableSDKMonkitStats, "print-stats", false, "Enable printing SDK monkit stats on shutdown")
 	rootCmd.PersistentFlags().StringVar(&accountName, "account", "", "Optional: Wallet name to use. If not provided, will use the first available wallet")
 	rootCmd.PersistentFlags().StringVar(&privateKey, "private-key", "", "Private key for signing transactions")
@@ -118,7 +118,10 @@ func initFlags() {
 
 	for _, cmd := range []*cobra.Command{fileUploadCmd, fileDownloadCmd} {
 		cmd.Flags().BoolVar(&disableErasureCoding, "disable-erasure-coding", false, "Do not use erasure coding")
+		cmd.Flags().IntVar(&chunkBuffer, "chunk-buffer", 4, "Number of chunks to buffer in memory during upload/download (4 = default, recommended: 0-32)")
 	}
+
+	fileUploadCmd.Flags().IntVar(&chunkBatch, "chunk-batch", 4, "how many chunks are sent in batch during blockchain addChunk operations(default 4)")
 }
 
 func initTracing(log *zap.Logger) (*mJaeger.ThriftCollector, func()) {

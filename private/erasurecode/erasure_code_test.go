@@ -4,13 +4,17 @@
 package erasurecode_test
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 
+	"github.com/klauspost/reedsolomon"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/akave-ai/akavesdk/private/encryption"
 	"github.com/akave-ai/akavesdk/private/erasurecode"
+	"github.com/akave-ai/akavesdk/private/testrand"
 )
 
 func TestErasureCodeInvalidParams(t *testing.T) {
@@ -39,7 +43,7 @@ func TestErasureCode(t *testing.T) {
 	t.Run("no missing shards", func(t *testing.T) {
 		blocks := splitIntoBlocks(encoded, shardSize)
 
-		extracted, err := encoder.ExtractData(blocks, 0)
+		extracted, err := encoder.ExtractData(blocks)
 		require.NoError(t, err)
 		assert.Equal(t, data, extracted)
 	})
@@ -64,7 +68,7 @@ func TestErasureCode(t *testing.T) {
 				blocks[idx] = nil
 			}
 
-			extracted, err := encoder.ExtractData(blocks, 0)
+			extracted, err := encoder.ExtractData(blocks)
 			require.NoError(t, err)
 			assert.Equal(t, data, extracted)
 		}
@@ -75,7 +79,7 @@ func TestErasureCode(t *testing.T) {
 		for i := range parityShards + 1 {
 			blocks[i] = nil
 		}
-		_, err := encoder.ExtractData(blocks, 0)
+		_, err := encoder.ExtractData(blocks)
 		require.Error(t, err)
 	})
 
@@ -89,7 +93,48 @@ func TestErasureCode(t *testing.T) {
 			}
 			blocks[i] = block
 		}
-		_, err := encoder.ExtractData(blocks, 0)
+		_, err := encoder.ExtractData(blocks)
+		require.Error(t, err)
+	})
+
+	t.Run("non nil shard should fail on reconstruct", func(t *testing.T) {
+		blocks := splitIntoBlocks(encoded, shardSize)
+		// Corrupt one block's size
+		blocks[0] = blocks[0][:len(blocks[0])-1]
+
+		_, err := encoder.ExtractData(blocks)
+		require.Error(t, err)
+	})
+
+	t.Run("too few shards should fail without reconstruction", func(t *testing.T) {
+		blocks := splitIntoBlocks(encoded, shardSize)
+		// Remove all but one shard (triggers ErrTooFewShards, not ErrShardSize)
+		blocks = blocks[:1]
+
+		_, err := encoder.ExtractData(blocks)
+		require.Error(t, err)
+		require.False(t, errors.Is(err, reedsolomon.ErrShardSize))
+	})
+
+	t.Run("all nil shards should fail without reconstruction", func(t *testing.T) {
+		// Create blocks with all nil shards (triggers ErrShardNoData, not ErrShardSize)
+		blocks := make([][]byte, dataShards+parityShards)
+
+		_, err := encoder.ExtractData(blocks)
+		require.Error(t, err)
+		require.False(t, errors.Is(err, reedsolomon.ErrShardSize))
+	})
+
+	t.Run("too many nil shards should fail without reconstruction", func(t *testing.T) {
+		blocks := splitIntoBlocks(encoded, shardSize)
+		// Set more than parity shards to nil (triggers ErrShardSize)
+		for i := 0; i < parityShards+1; i++ {
+			blocks[i] = nil
+		}
+
+		// This will fail because even though ErrShardSize is triggered,
+		// Reconstruct will fail when trying to reconstruct >parityShards missing shards
+		_, err := encoder.ExtractData(blocks)
 		require.Error(t, err)
 	})
 }
@@ -126,6 +171,30 @@ func TestReconstructData(t *testing.T) {
 
 		assert.Equal(t, originalBlocks, blocksToReconstruct)
 	})
+}
+
+func TestEncodeWithPreallocatedSlice(t *testing.T) {
+	data := []byte("Quick brown fox jumps over the lazy dog")
+	dataShards := 5
+	parityShards := 3
+
+	encoder, err := erasurecode.New(dataShards, parityShards)
+	require.NoError(t, err)
+
+	// Preallocate byte slice with data, taking WrapOverhead into account
+	preallocated := make([]byte, len(data), len(data)+erasurecode.WrapOverhead)
+	copy(preallocated, data)
+
+	encoded, err := encoder.Encode(preallocated)
+	require.NoError(t, err)
+
+	shardSize := len(encoded) / (dataShards + parityShards)
+	blocks := splitIntoBlocks(encoded, shardSize)
+
+	// Verify that we can extract the original data
+	extracted, err := encoder.ExtractData(blocks)
+	require.NoError(t, err)
+	assert.Equal(t, data, extracted)
 }
 
 func missingShardsIdx(n, k int) [][]int {
@@ -167,4 +236,40 @@ func splitIntoBlocks(encoded []byte, shardSize int) [][]byte {
 		blocks = append(blocks, block)
 	}
 	return blocks
+}
+
+func TestEncryptAndErasureCode16x16_16MB(t *testing.T) {
+	const (
+		dataSize     = 16 * 1024 * 1024
+		dataShards   = 16
+		parityShards = 16
+	)
+
+	encryptionKey := testrand.Bytes(t, 32)
+	plainData := testrand.Bytes(t, int64(dataSize))
+
+	encoder, err := erasurecode.New(dataShards, parityShards)
+	require.NoError(t, err)
+
+	requiredCapacity := dataSize + encryption.Overhead + erasurecode.WrapOverhead
+	encryptedData := make([]byte, dataSize, requiredCapacity)
+	copy(encryptedData, plainData)
+	encryptedData, err = encryption.Encrypt(encryptionKey, encryptedData, "erasure-coding")
+	require.NoError(t, err)
+
+	encoded, err := encoder.Encode(encryptedData)
+	require.NoError(t, err)
+
+	shardSize := len(encoded) / (dataShards + parityShards)
+
+	t.Run("no missing shards", func(t *testing.T) {
+		blocks := splitIntoBlocks(encoded, shardSize)
+
+		extracted, err := encoder.ExtractData(blocks)
+		require.NoError(t, err)
+
+		decrypted, err := encryption.Decrypt(encryptionKey, extracted, "erasure-coding")
+		require.NoError(t, err)
+		assert.Equal(t, plainData, decrypted)
+	})
 }

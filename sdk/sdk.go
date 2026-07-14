@@ -12,14 +12,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ipfs/boxo/ipld/merkledag"
-	"github.com/ipfs/boxo/ipld/unixfs"
 	"github.com/ipfs/boxo/ipld/unixfs/importer/helpers"
 	"github.com/ipfs/go-cid"
 	"github.com/spacemonkeygo/monkit/v3"
 	"github.com/zeebo/errs/v2"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/encoding/protowire"
 
 	"github.com/akave-ai/akavesdk/private/encryption"
 	"github.com/akave-ai/akavesdk/private/erasurecode"
@@ -33,11 +32,10 @@ const (
 	// BlockSize is the size of a block. Keep in mind that encryption adds some overhead and max supported block size(with added encryption) is 1MiB.
 	// TODO: after removing normal api, chnage it to 1MiB.
 	BlockSize = 1 * memory.MB
-	// EncryptionOverhead is the overhead of encryption.
-	EncryptionOverhead = 28 // 16 bytes for AES-GCM tag, 12 bytes for nonce
 
 	minBucketNameLength = 3
 	minFileSize         = 127 // 127 bytes
+	maxBlockSize        = 1 * memory.MiB
 )
 
 var (
@@ -57,16 +55,15 @@ type SDK struct {
 	ec         *erasurecode.ErasureCode
 	pool       *connectionPool
 
-	maxConcurrency            int
-	blockPartSize             int64
-	useConnectionPool         bool
-	privateKey                string
-	encryptionKey             []byte // empty means no encryption
-	streamingMaxBlocksInChunk int
-	parityBlocksCount         int  // 0 means no erasure coding applied
-	useMetadataEncryption     bool // encrypts bucket and file names if true
-	chunkBuffer               int
-	batchSize                 int
+	maxConcurrency        int
+	blockPartSize         int64
+	privateKey            string
+	encryptionKey         []byte // empty means no encryption
+	maxBlocksInChunk      int
+	parityBlocksCount     int  // 0 means no erasure coding applied
+	useMetadataEncryption bool // encrypts bucket and file names if true
+	chunkBuffer           int
+	chunkBatchSize        int
 
 	withRetry retry.WithRetry
 }
@@ -85,17 +82,10 @@ func WithEncryptionKey(key []byte) func(*SDK) {
 	}
 }
 
-// WithPrivateKey sets the private key for the SDK.
-func WithPrivateKey(key string) func(*SDK) {
+// WithMaxBlocksInChunk sets the max blocks in chunk for streaming.
+func WithMaxBlocksInChunk(maxBlocksInChunk int) func(*SDK) {
 	return func(s *SDK) {
-		s.privateKey = key
-	}
-}
-
-// WithStreamingMaxBlocksInChunk sets the max blocks in chunk for streaming.
-func WithStreamingMaxBlocksInChunk(maxBlocksInChunk int) func(*SDK) {
-	return func(s *SDK) {
-		s.streamingMaxBlocksInChunk = maxBlocksInChunk
+		s.maxBlocksInChunk = maxBlocksInChunk
 	}
 }
 
@@ -108,18 +98,21 @@ func WithErasureCoding(parityBlocks int) func(*SDK) {
 
 // WithChunkBuffer sets the chunk buffer size for streaming operations.
 func WithChunkBuffer(bufferSize int) func(*SDK) {
+	if bufferSize < 0 {
+		bufferSize = 0
+	}
 	return func(s *SDK) {
 		s.chunkBuffer = bufferSize
 	}
 }
 
-// WithBatchSize sets the chunk batch size for ipc operations.
-func WithBatchSize(batchSize int) func(*SDK) {
+// WithChunkBatchSize sets the chunk batch size for blockchain operations.
+func WithChunkBatchSize(batchSize int) func(*SDK) {
 	if batchSize < 1 {
 		batchSize = 1
 	}
 	return func(s *SDK) {
-		s.batchSize = batchSize
+		s.chunkBatchSize = batchSize
 	}
 }
 
@@ -138,7 +131,7 @@ func WithoutRetry() func(*SDK) {
 }
 
 // New returns a new SDK.
-func New(address string, maxConcurrency int, blockPartSize int64, useConnectionPool bool, options ...Option) (*SDK, error) {
+func New(address string, maxConcurrency int, blockPartSize int64, privateKey string, options ...Option) (*SDK, error) {
 	if blockPartSize <= 0 || blockPartSize > int64(helpers.BlockSizeLimit) {
 		return nil, fmt.Errorf("invalid blockPartSize: %d. Valid range is 1-%d", blockPartSize, helpers.BlockSizeLimit)
 	}
@@ -149,15 +142,16 @@ func New(address string, maxConcurrency int, blockPartSize int64, useConnectionP
 	}
 
 	s := &SDK{
-		conn:                      conn,
-		pool:                      newConnectionPool(),
-		maxConcurrency:            maxConcurrency,
-		blockPartSize:             blockPartSize,
-		useConnectionPool:         useConnectionPool,
-		streamingMaxBlocksInChunk: 32,
-		chunkBuffer:               0, // Default value for chunk buffer
-		batchSize:                 1,
-		// enable retires by default
+		conn:             conn,
+		pool:             newConnectionPool(),
+		maxConcurrency:   maxConcurrency,
+		blockPartSize:    blockPartSize,
+		privateKey:       privateKey,
+		maxBlocksInChunk: 32,
+		chunkBuffer:      0,
+		chunkBatchSize:   1,
+
+		// enable retries by default
 		withRetry: retry.WithRetry{
 			MaxAttempts: 5,
 			BaseDelay:   100 * time.Millisecond,
@@ -168,8 +162,8 @@ func New(address string, maxConcurrency int, blockPartSize int64, useConnectionP
 		opt(s)
 	}
 
-	if s.streamingMaxBlocksInChunk < 2 {
-		return nil, errSDK.Errorf("streaming max blocks in chunk %d should be >= 2", s.streamingMaxBlocksInChunk)
+	if s.maxBlocksInChunk < 2 {
+		return nil, errSDK.Errorf("max blocks in chunk %d should be >= 2", s.maxBlocksInChunk)
 	}
 
 	keyLength := len(s.encryptionKey)
@@ -177,13 +171,13 @@ func New(address string, maxConcurrency int, blockPartSize int64, useConnectionP
 		return nil, errSDK.Errorf("encyption key length should be 32 bytes long")
 	}
 
-	if s.parityBlocksCount > s.streamingMaxBlocksInChunk/2 {
-		return nil, errSDK.Errorf("parity blocks count %d should be <= %d", s.parityBlocksCount, s.streamingMaxBlocksInChunk/2)
+	if s.parityBlocksCount > s.maxBlocksInChunk/2 {
+		return nil, errSDK.Errorf("parity blocks count %d should be <= %d", s.parityBlocksCount, s.maxBlocksInChunk/2)
 	}
 
 	if s.parityBlocksCount > 0 { // erasure coding enabled
 		var err error
-		s.ec, err = erasurecode.New(s.streamingMaxBlocksInChunk-s.parityBlocksCount, s.parityBlocksCount)
+		s.ec, err = erasurecode.New(s.maxBlocksInChunk-s.parityBlocksCount, s.parityBlocksCount)
 		if err != nil {
 			return nil, errSDK.Wrap(err)
 		}
@@ -239,12 +233,11 @@ func (sdk *SDK) IPC() (*IPC, error) {
 		privateKey:            sdk.privateKey,
 		maxConcurrency:        sdk.maxConcurrency,
 		blockPartSize:         sdk.blockPartSize,
-		useConnectionPool:     sdk.useConnectionPool,
 		encryptionKey:         sdk.encryptionKey,
-		maxBlocksInChunk:      sdk.streamingMaxBlocksInChunk,
+		maxBlocksInChunk:      sdk.maxBlocksInChunk,
 		useMetadataEncryption: sdk.useMetadataEncryption,
 		chunkBuffer:           sdk.chunkBuffer,
-		batchSize:             sdk.batchSize,
+		chunkBatchSize:        sdk.chunkBatchSize,
 		withRetry:             sdk.withRetry,
 	}, nil
 }
@@ -293,15 +286,11 @@ func ExtractBlockData(idStr string, data []byte) ([]byte, error) {
 	}
 	switch id.Type() {
 	case cid.DagProtobuf:
-		node, err := merkledag.DecodeProtobuf(data)
+		inner, err := consumeDAGPBDataField(data)
 		if err != nil {
 			return nil, err
 		}
-		fsNode, err := unixfs.FSNodeFromBytes(node.Data())
-		if err != nil {
-			return nil, err
-		}
-		return fsNode.Data(), nil
+		return consumeUnixFSDataField(inner)
 	case cid.Raw:
 		return data, nil
 	default:
@@ -309,13 +298,65 @@ func ExtractBlockData(idStr string, data []byte) ([]byte, error) {
 	}
 }
 
+// consumeDAGPBDataField extracts the raw Data bytes from a DAG-PB encoded node
+// (protobuf field 1). Returns a zero-copy sub-slice of raw.
+func consumeDAGPBDataField(raw []byte) ([]byte, error) {
+	b := raw
+	for len(b) > 0 {
+		num, typ, n := protowire.ConsumeTag(b)
+		if n < 0 {
+			return nil, fmt.Errorf("invalid dag-pb tag: %w", protowire.ParseError(n))
+		}
+		b = b[n:]
+		if num == 1 && typ == protowire.BytesType {
+			val, n := protowire.ConsumeBytes(b)
+			if n < 0 {
+				return nil, fmt.Errorf("invalid dag-pb data field: %w", protowire.ParseError(n))
+			}
+			return val, nil
+		}
+		n = protowire.ConsumeFieldValue(num, typ, b)
+		if n < 0 {
+			return nil, fmt.Errorf("invalid dag-pb field: %w", protowire.ParseError(n))
+		}
+		b = b[n:]
+	}
+	return nil, fmt.Errorf("dag-pb data field not found")
+}
+
+// consumeUnixFSDataField extracts the Data payload from a UnixFS encoded node
+// (protobuf field 2). Returns a zero-copy sub-slice of raw.
+func consumeUnixFSDataField(raw []byte) ([]byte, error) {
+	b := raw
+	for len(b) > 0 {
+		num, typ, n := protowire.ConsumeTag(b)
+		if n < 0 {
+			return nil, fmt.Errorf("invalid unixfs tag: %w", protowire.ParseError(n))
+		}
+		b = b[n:]
+		if num == 2 && typ == protowire.BytesType {
+			val, n := protowire.ConsumeBytes(b)
+			if n < 0 {
+				return nil, fmt.Errorf("invalid unixfs data field: %w", protowire.ParseError(n))
+			}
+			return val, nil
+		}
+		n = protowire.ConsumeFieldValue(num, typ, b)
+		if n < 0 {
+			return nil, fmt.Errorf("invalid unixfs field: %w", protowire.ParseError(n))
+		}
+		b = b[n:]
+	}
+	return nil, fmt.Errorf("unixfs data field not found")
+}
+
 func encryptionKey(parentKey []byte, infoData ...string) ([]byte, error) {
 	if len(parentKey) == 0 {
-		return nil, nil
+		return parentKey, nil
 	}
 
 	info := strings.Join(infoData, "/")
-	key, err := encryption.DeriveKey(parentKey, []byte(info))
+	key, err := encryption.DeriveKey(parentKey, info)
 	if err != nil {
 		return nil, err
 	}
@@ -359,4 +400,13 @@ func skipToPosition(reader io.Reader, position int64) error {
 	}
 
 	return nil
+}
+
+// readUpTo reads from reader into buf up to len(buf) bytes.
+func readUpTo(r io.Reader, buf []byte) (int, error) {
+	n, err := io.ReadFull(r, buf)
+	if errors.Is(err, io.ErrUnexpectedEOF) {
+		return n, nil
+	}
+	return n, err
 }

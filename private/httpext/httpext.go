@@ -12,6 +12,9 @@ import (
 	"net/http"
 )
 
+// ErrTransient indicates that the error is transient.
+var ErrTransient = errors.New("transient error")
+
 // RangeDownload downloads a specific byte range from the given URL using the provided HTTP client.
 func RangeDownload(ctx context.Context, client *http.Client, url string, offset, length int64) (_ []byte, err error) {
 	if length <= 0 || offset < 0 {
@@ -29,7 +32,7 @@ func RangeDownload(ctx context.Context, client *http.Client, url string, offset,
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
+		return nil, errors.Join(ErrTransient, fmt.Errorf("request failed: %w", err))
 	}
 	defer func() {
 		err = errors.Join(err, resp.Body.Close())
@@ -43,7 +46,7 @@ func RangeDownload(ctx context.Context, client *http.Client, url string, offset,
 
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
+		return nil, errors.Join(ErrTransient, fmt.Errorf("url %s, offset %d, end %d: %w", url, offset, end, err))
 	}
 
 	return data, nil

@@ -28,10 +28,8 @@ func Info() Version {
 
 	info, ok := debug.ReadBuildInfo()
 	if ok {
+		commit = info.Main.Version
 		for _, setting := range info.Settings {
-			if setting.Key == "vcs.revision" {
-				commit = setting.Value
-			}
 			if setting.Key == "vcs.time" {
 				timestamp = setting.Value
 			}

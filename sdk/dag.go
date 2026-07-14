@@ -23,8 +23,17 @@ import (
 )
 
 var (
-	cidBuilder, _ = merkledag.PrefixForCidVersion(1)
+	// CIDBuilder is the CID builder used for all DAG nodes.
+	CIDBuilder, _ = merkledag.PrefixForCidVersion(1)
 )
+
+// ChunkDAG is a merkledag of data blocks in a chunk.
+type ChunkDAG struct {
+	CID         cid.Cid
+	RawDataSize uint64 // size of data read from disk.
+	EncodedSize uint64 // encoded size.
+	Blocks      []FileBlockUpload
+}
 
 // DAGRoot is a helper to build a root CID from chunks.
 type DAGRoot struct {
@@ -35,7 +44,7 @@ type DAGRoot struct {
 // NewDAGRoot creates a new DAG root node.
 func NewDAGRoot() (*DAGRoot, error) {
 	node := new(merkledag.ProtoNode)
-	if err := node.SetCidBuilder(cidBuilder); err != nil {
+	if err := node.SetCidBuilder(CIDBuilder); err != nil {
 		return nil, err
 	}
 	fsNode := unixfs.NewFSNode(unixfs.TFile)
@@ -75,12 +84,23 @@ func (root *DAGRoot) Build() (cid.Cid, error) {
 	return root.node.Cid(), nil
 }
 
-// ChunkDAG is a merkledag of data blocks in a chunk.
-type ChunkDAG struct {
-	CID         cid.Cid
-	RawDataSize uint64 // size of data read from disk.
-	EncodedSize uint64 // encoded size.
-	Blocks      []FileBlockUpload
+// BuildLeafNode wraps raw data in a unixfs TFile ProtoNode, matching the leaf
+// nodes produced by BuildDAG.
+func BuildLeafNode(data []byte) (*merkledag.ProtoNode, error) {
+	node := new(merkledag.ProtoNode)
+	if err := node.SetCidBuilder(CIDBuilder); err != nil {
+		return nil, err
+	}
+
+	fsNode := unixfs.NewFSNode(unixfs.TFile)
+	fsNode.SetData(data)
+	fsBytes, err := fsNode.GetBytes()
+	if err != nil {
+		return nil, err
+	}
+	node.SetData(fsBytes)
+
+	return node, nil
 }
 
 // BuildDAG builds the ChunkDAG of a file.
@@ -94,7 +114,7 @@ func BuildDAG(ctx context.Context, reader io.Reader, blockSize int64) (ChunkDAG,
 	params := helpers.DagBuilderParams{
 		Maxlinks:   1024,
 		RawLeaves:  false, // 1048590 pb encoded ,1048576 - raw; merkledag.ProtoNode merkledag.RawNode
-		CidBuilder: cidBuilder,
+		CidBuilder: CIDBuilder,
 		Dagserv:    dagServ,
 		NoCopy:     false,
 	}

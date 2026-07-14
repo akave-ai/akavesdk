@@ -31,10 +31,7 @@ func TestGetTransactionReceiptsBatch(t *testing.T) {
 	pk := ipctest.NewFundedAccount(t, privateKey, dialUri, ipctest.ToWei(10))
 	newPk := hexutil.Encode(crypto.FromECDSA(pk))[2:]
 
-	client, err := ipc.DeployContracts(ctx, ipc.Config{
-		DialURI:    dialUri,
-		PrivateKey: newPk,
-	})
+	client, err := ipc.DeployContracts(ctx, dialUri, newPk)
 	require.NoError(t, err)
 	batchClient := ipc.NewBatchClient(client.Eth.Client())
 
@@ -118,10 +115,7 @@ func TestGetBlocksBatch(t *testing.T) {
 	pk := ipctest.NewFundedAccount(t, privateKey, dialUri, ipctest.ToWei(10))
 	newPk := hexutil.Encode(crypto.FromECDSA(pk))[2:]
 
-	client, err := ipc.DeployContracts(ctx, ipc.Config{
-		DialURI:    dialUri,
-		PrivateKey: newPk,
-	})
+	client, err := ipc.DeployContracts(ctx, dialUri, newPk)
 	require.NoError(t, err)
 	t.Cleanup(client.Eth.Close)
 

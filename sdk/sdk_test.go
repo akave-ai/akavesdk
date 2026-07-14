@@ -58,26 +58,26 @@ func PickDialURI(t testing.TB) string {
 
 func TestCreateSDKClient(t *testing.T) {
 	t.Run("invalid max blocks in chunk", func(t *testing.T) {
-		_, err := sdk.New("", maxConcurrency, blockPartSize.ToInt64(), true, sdk.WithStreamingMaxBlocksInChunk(1))
+		_, err := sdk.New("", maxConcurrency, blockPartSize.ToInt64(), "", sdk.WithMaxBlocksInChunk(1))
 		require.Error(t, err)
-		require.Equal(t, "sdk: streaming max blocks in chunk 1 should be >= 2", err.Error())
+		require.Equal(t, "sdk: max blocks in chunk 1 should be >= 2", err.Error())
 	})
 
 	t.Run("invalid erasure coding config", func(t *testing.T) {
-		_, err := sdk.New("", maxConcurrency, blockPartSize.ToInt64(), true, sdk.WithErasureCoding(17))
+		_, err := sdk.New("", maxConcurrency, blockPartSize.ToInt64(), "", sdk.WithErasureCoding(17))
 		require.Error(t, err)
 		require.Equal(t, "sdk: parity blocks count 17 should be <= 16", err.Error())
 
-		_, err = sdk.New("", maxConcurrency, blockPartSize.ToInt64(), true,
+		_, err = sdk.New("", maxConcurrency, blockPartSize.ToInt64(), "",
 			sdk.WithErasureCoding(40),
-			sdk.WithStreamingMaxBlocksInChunk(64),
+			sdk.WithMaxBlocksInChunk(64),
 		)
 		require.Error(t, err)
 		require.Equal(t, "sdk: parity blocks count 40 should be <= 32", err.Error())
 	})
 
 	t.Run("invalid encryption key size", func(t *testing.T) {
-		_, err := sdk.New("", maxConcurrency, blockPartSize.ToInt64(), true, sdk.WithEncryptionKey([]byte("short")))
+		_, err := sdk.New("", maxConcurrency, blockPartSize.ToInt64(), "", sdk.WithEncryptionKey([]byte("short")))
 		require.Error(t, err)
 		require.Equal(t, "sdk: encyption key length should be 32 bytes long", err.Error())
 	})
@@ -101,8 +101,8 @@ func generate10MiBFile(t *testing.T, seed int64) *bytes.Buffer {
 func checkFileContents(t *testing.T, n int, expected, actual []byte) {
 	t.Helper()
 	require.Equal(t, len(expected), len(actual))
-	// check first 10 bytes
+	// check first N bytes
 	require.EqualValues(t, expected[:n], actual[:n])
-	// check last 10 bytes
+	// check last N bytes
 	require.EqualValues(t, expected[len(expected)-n:], actual[len(actual)-n:])
 }

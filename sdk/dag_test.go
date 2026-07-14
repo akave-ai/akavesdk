@@ -5,6 +5,7 @@ package sdk_test
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"testing"
 
@@ -138,6 +139,66 @@ func TestRootCIDBuilder(t *testing.T) {
 
 		require.Equal(t, "bafybeiamgcn2bye63nlzuvilqrc6pqt7jsn5oyp2wx7pkeu4eyxgzglvpi", rootCid.String())
 	})
+}
+
+func TestDAGRootBuildMatchesBuildDAG(t *testing.T) {
+	const maxBlocks = 32
+
+	tests := []struct {
+		name      string
+		totalSize int64
+	}{
+		{"32MiB", 32 * memory.MiB.ToInt64()},
+		{"30MiB", 30 * memory.MiB.ToInt64()},
+		{"16MiB", 16 * memory.MiB.ToInt64()},
+		{"5MiB", 5 * memory.MiB.ToInt64()},
+		{"1MB", 1 * memory.MB.ToInt64()},
+		{"142 bytes", 142},
+		{"13 bytes", 13},
+		{"1 byte", 1},
+	}
+
+	for _, tc := range tests {
+		blockSize := (tc.totalSize + maxBlocks - 1) / maxBlocks
+		expectedBlocks := int((tc.totalSize + blockSize - 1) / blockSize)
+		t.Run(fmt.Sprintf("%s/blockSize=%d", tc.name, blockSize), func(t *testing.T) {
+			data := testrand.BytesD(t, 2026, tc.totalSize)
+
+			dagResult, err := sdk.BuildDAG(t.Context(), bytes.NewBuffer(data), blockSize)
+			require.NoError(t, err)
+			require.Len(t, dagResult.Blocks, expectedBlocks)
+
+			root, err := sdk.NewDAGRoot()
+			require.NoError(t, err)
+
+			var totalRawDataSize, totalEncodedSize uint64
+			for i, block := range dagResult.Blocks {
+				start := int64(i) * blockSize
+				end := min(start+blockSize, tc.totalSize)
+				blockData := data[start:end]
+
+				node, err := sdk.BuildLeafNode(blockData)
+				require.NoError(t, err)
+
+				rawDataSize := uint64(len(blockData))
+				encodedSize := uint64(len(node.RawData()))
+
+				require.Equal(t, block.CID, node.Cid().String(), "block %d CID mismatch", i)
+				require.Equal(t, uint64(len(block.Data)), encodedSize, "block %d encoded size mismatch", i)
+
+				totalRawDataSize += rawDataSize
+				totalEncodedSize += encodedSize
+
+				require.NoError(t, root.AddLink(node.Cid(), rawDataSize, encodedSize))
+			}
+
+			rootCID, err := root.Build()
+			require.NoError(t, err)
+			require.Equal(t, dagResult.CID.String(), rootCID.String())
+			require.Equal(t, dagResult.RawDataSize, totalRawDataSize)
+			require.Equal(t, dagResult.EncodedSize, totalEncodedSize)
+		})
+	}
 }
 
 func expectedDAG(t *testing.T) sdk.ChunkDAG {

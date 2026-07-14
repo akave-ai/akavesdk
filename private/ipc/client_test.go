@@ -36,10 +36,7 @@ func TestContracts(t *testing.T) {
 	pk := ipctest.NewFundedAccount(t, privateKey, dialUri, ipctest.ToWei(10))
 	newPk := ipctest.PrivateKeyToHex(pk)
 
-	client, err := ipc.DeployContracts(ctx, ipc.Config{
-		DialURI:    dialUri,
-		PrivateKey: newPk,
-	})
+	client, err := ipc.DeployContracts(ctx, dialUri, newPk)
 	require.NoError(t, err)
 
 	listIDs, err := client.Storage.GetOwnerBuckets(&bind.CallOpts{Context: ctx}, client.Auth.From, big.NewInt(0), big.NewInt(10), big.NewInt(0), big.NewInt(0))
@@ -209,10 +206,7 @@ func TestAddFileChunksFillChunkBlocks(t *testing.T) {
 	pk := ipctest.NewFundedAccount(t, privateKey, dialUri, ipctest.ToWei(10))
 	newPk := hexutil.Encode(crypto.FromECDSA(pk))[2:]
 
-	client, err := ipc.DeployContracts(ctx, ipc.Config{
-		DialURI:    dialUri,
-		PrivateKey: newPk,
-	})
+	client, err := ipc.DeployContracts(ctx, dialUri, newPk)
 	require.NoError(t, err)
 
 	tx, err := client.Storage.CreateBucket(client.Auth, testBucketName)

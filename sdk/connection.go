@@ -13,6 +13,13 @@ import (
 	"github.com/akave-ai/akavesdk/private/pb"
 )
 
+var defaultDialOptions = []grpc.DialOption{
+	grpc.WithTransportCredentials(insecure.NewCredentials()),
+	grpc.WithReadBufferSize(128 << 10),
+	grpc.WithWriteBufferSize(128 << 10),
+	grpc.WithSharedWriteBuffer(true),
+}
+
 type connectionPool struct {
 	mu          sync.RWMutex
 	connections map[string]*grpc.ClientConn
@@ -24,36 +31,22 @@ func newConnectionPool() *connectionPool {
 	}
 }
 
-func (p *connectionPool) createIPCClient(addr string, pooled bool) (pb.IPCNodeAPIClient, func() error, error) {
-	if pooled {
-		conn, err := p.get(addr)
-		if err != nil {
-			return nil, nil, err
-		}
-		return pb.NewIPCNodeAPIClient(conn), nil, nil
-	}
-
-	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+// IPCClient returns a gRPC IPCNodeAPIClient for the given address.
+func (p *connectionPool) IPCClient(addr string) (pb.IPCNodeAPIClient, func() error, error) {
+	conn, err := p.get(addr)
 	if err != nil {
 		return nil, nil, err
 	}
-	return pb.NewIPCNodeAPIClient(conn), conn.Close, nil
+	return pb.NewIPCNodeAPIClient(conn), nil, nil
 }
 
-func (p *connectionPool) createArchivalClient(addr string, pooled bool) (pb.IPCArchivalAPIClient, func() error, error) {
-	if pooled {
-		conn, err := p.get(addr)
-		if err != nil {
-			return nil, nil, err
-		}
-		return pb.NewIPCArchivalAPIClient(conn), nil, nil
-	}
-
-	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+// ArchivalClient returns a gRPC IPCArchivalAPIClient for the given address.
+func (p *connectionPool) ArchivalClient(addr string) (pb.IPCArchivalAPIClient, func() error, error) {
+	conn, err := p.get(addr)
 	if err != nil {
 		return nil, nil, err
 	}
-	return pb.NewIPCArchivalAPIClient(conn), conn.Close, nil
+	return pb.NewIPCArchivalAPIClient(conn), nil, nil
 }
 
 func (p *connectionPool) get(addr string) (*grpc.ClientConn, error) {
@@ -73,7 +66,7 @@ func (p *connectionPool) get(addr string) (*grpc.ClientConn, error) {
 		return conn, nil
 	}
 
-	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(addr, defaultDialOptions...)
 	if err != nil {
 		return nil, err
 	}

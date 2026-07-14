@@ -19,8 +19,6 @@ import (
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/ethereum/go-ethereum/core"
-	"github.com/ethereum/go-ethereum/core/txpool"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
@@ -97,7 +95,7 @@ func NewFundedAccount(t *testing.T, pk, dialUri string, amount *big.Int) *ecdsa.
 
 	for range maxRetries {
 		if err := deposit(ctx, client, signer, destAddress, sourcePrivateKey, amount); err != nil {
-			if errs.Is(err, core.ErrNonceTooLow) || errs.Is(err, txpool.ErrReplaceUnderpriced) {
+			if strings.Contains(err.Error(), "nonce too low") || strings.Contains(err.Error(), "replacement transaction underpriced") {
 				time.Sleep(retryDelay)
 				continue
 			}

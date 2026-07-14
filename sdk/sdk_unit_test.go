@@ -9,8 +9,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ipfs/boxo/ipld/merkledag"
+	"github.com/ipfs/boxo/ipld/unixfs"
 	"github.com/stretchr/testify/require"
 
+	"github.com/akave-ai/akavesdk/private/erasurecode"
 	"github.com/akave-ai/akavesdk/private/testrand"
 )
 
@@ -191,4 +194,82 @@ func TestSkipToPosition(t *testing.T) {
 		expected := testData[64*1024 : 64*1024+4]
 		require.Equal(t, expected, buf)
 	})
+}
+
+func TestExtractBlockDataDecodeProtobufMatchesProtowire(t *testing.T) {
+	t.Run("plain", func(t *testing.T) {
+		sizes := []struct {
+			name      string
+			chunkSize int64
+		}{
+			{"sub-block (512KiB)", 512 * 1024},
+			{"single block (1MiB)", 1 * 1024 * 1024},
+			{"few blocks (4MiB)", 4 * 1024 * 1024},
+			{"half chunk (16MiB)", 16 * 1024 * 1024},
+			{"full chunk (32MiB)", 32 * 1024 * 1024},
+		}
+
+		for _, tc := range sizes {
+			t.Run(tc.name, func(t *testing.T) {
+				payload := testrand.Bytes(t, tc.chunkSize)
+				dag, err := BuildDAG(t.Context(), bytes.NewReader(payload), BlockSize.ToInt64())
+				require.NoError(t, err)
+
+				assertBlockDataMatch(t, dag.Blocks)
+			})
+		}
+	})
+
+	t.Run("erasure coded", func(t *testing.T) {
+		ecCases := []struct {
+			name         string
+			dataBlocks   int
+			parityBlocks int
+		}{
+			{"4+4", 4, 4},
+			{"8+8", 8, 8},
+			{"16+16", 16, 16},
+		}
+
+		for _, tc := range ecCases {
+			t.Run(tc.name, func(t *testing.T) {
+				ec, err := erasurecode.New(tc.dataBlocks, tc.parityBlocks)
+				require.NoError(t, err)
+
+				// Mirror sdk_ipc.go logic: chunk size = dataBlocks * BlockSize (1 MB each).
+				chunkSize := int64(tc.dataBlocks) * BlockSize.ToInt64()
+				payload := testrand.Bytes(t, chunkSize)
+				encoded, err := ec.Encode(payload)
+				require.NoError(t, err)
+				blockSize := int64(len(encoded) / (ec.DataBlocks + ec.ParityBlocks))
+				dag, err := BuildDAG(t.Context(), bytes.NewBuffer(encoded), blockSize)
+				require.NoError(t, err)
+
+				assertBlockDataMatch(t, dag.Blocks)
+			})
+		}
+	})
+}
+
+func assertBlockDataMatch(t *testing.T, blocks []FileBlockUpload) {
+	t.Helper()
+
+	for _, block := range blocks {
+		raw := block.Data
+
+		// Legacy path: merkledag.DecodeProtobuf → FSNodeFromBytes → Data()
+		node, err := merkledag.DecodeProtobuf(raw)
+		require.NoError(t, err)
+		fsNode, err := unixfs.FSNodeFromBytes(node.Data())
+		require.NoError(t, err)
+		legacyData := fsNode.Data()
+
+		// New path: consumeDagPBDataField → consumeUnixFSDataField
+		inner, err := consumeDAGPBDataField(raw)
+		require.NoError(t, err)
+		newData, err := consumeUnixFSDataField(inner)
+		require.NoError(t, err)
+
+		require.Equal(t, legacyData, newData)
+	}
 }
