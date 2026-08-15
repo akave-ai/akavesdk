@@ -9,6 +9,18 @@ Whether you're building a new integration or managing data across nodes, this SD
 ## Build and test instructions
 Requirements: Go 1.25+
 
+**Installing Go on Ubuntu/Debian:**
+
+> **Note:** Replace `linux-amd64` with `linux-arm64` if you are on an ARM host (run `uname -m` — if it returns `aarch64` you need the arm64 tarball).
+
+```sh
+wget https://go.dev/dl/go1.25.0.linux-$(dpkg --print-architecture).tar.gz
+sudo rm -rf /usr/local/go
+sudo tar -C /usr/local -xzf go1.25.0.linux-$(dpkg --print-architecture).tar.gz
+export PATH=/usr/local/go/bin:$PATH
+```
+Add `export PATH=/usr/local/go/bin:$PATH` to your `~/.profile` or `~/.bashrc` to make it permanent.
+
 `make build` - outputs a cli binary into `bin/akavecli`.<br>
 `make test` - runs tests.<br>
 Look at `Makefile` for details.
